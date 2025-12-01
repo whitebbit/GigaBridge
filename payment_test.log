@@ -1,0 +1,498 @@
+2025-11-30 16:10:41 | INFO | ==================================================
+2025-11-30 16:10:41 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:10:41 | INFO | ==================================================
+2025-11-30 16:10:41 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:10:41 | SUCCESS | Конфигурация установлена: account_id=1216074
+2025-11-30 16:10:41 | INFO | Подготовка данных платежа...
+2025-11-30 16:10:41 | DEBUG | Сгенерирован UUID платежа: ae8a041f-ae85-43eb-ad7d-4e9e7bc66a79
+2025-11-30 16:10:41 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:10:41 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:10:41 | ERROR | Ошибка при создании платежа: HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:10:41 | ERROR | Полная информация об ошибке:
+Traceback (most recent call last):
+
+> File "D:\Yang\GigaBridge\test.py", line 41, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('ae8a041f-ae85-43eb-ad7d-4e9e7bc66a79')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x000001F98A173060>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x000001F9895B45D0>
+               │        │      │       │        │     │           └ {'Idempotence-Key': 'ae8a041f-ae85-43eb-ad7d-4e9e7bc66a79'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x000001F98972AA20>
+               │        └ <yookassa.client.ApiClient object at 0x000001F98A189DD0>
+               └ <yookassa.payment.Payment object at 0x000001F989E79F90>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic MTIxNjA3NDp0ZXN0XypnSFJkVERmNVJ2Y0xMZ1VzZjhob29wMTNBc0wyY00tZVpC...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x000001F989AD5E40>
+                   └ <yookassa.client.ApiClient object at 0x000001F98A189DD0>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:10:42 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x000001F98A04B2E0>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x000001F98A189DD0>
+    │    │            │            └ <property object at 0x000001F98A03AB60>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x000001F98A04B420>)>
+    └ <yookassa.client.ApiClient object at 0x000001F98A189DD0>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x000001F98A048E00>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:12:04 | INFO | ==================================================
+2025-11-30 16:12:04 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:12:04 | INFO | ==================================================
+2025-11-30 16:12:04 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:12:04 | SUCCESS | Конфигурация установлена: account_id=1216074
+2025-11-30 16:12:04 | INFO | Подготовка данных платежа...
+2025-11-30 16:12:04 | DEBUG | Сгенерирован UUID платежа: 9dd03ff2-becf-45ee-aaf0-959145429111
+2025-11-30 16:12:04 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:12:04 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:12:04 | ERROR | Ошибка при создании платежа: HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:12:04 | ERROR | Полная информация об ошибке:
+Traceback (most recent call last):
+
+> File "d:\Yang\GigaBridge\test.py", line 41, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('9dd03ff2-becf-45ee-aaf0-959145429111')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x0000017721743060>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x00000177209C5A90>
+               │        │      │       │        │     │           └ {'Idempotence-Key': '9dd03ff2-becf-45ee-aaf0-959145429111'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x0000017720E2AA20>
+               │        └ <yookassa.client.ApiClient object at 0x0000017721759C90>
+               └ <yookassa.payment.Payment object at 0x0000017721611AD0>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic MTIxNjA3NDp0ZXN0XypnSFJkVERmNVJ2Y0xMZ1VzZjhob29wMTNBc0wyY00tZVpC...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x0000017720FD5E40>
+                   └ <yookassa.client.ApiClient object at 0x0000017721759C90>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:12:05 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x000001772161B2E0>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x0000017721759C90>
+    │    │            │            └ <property object at 0x0000017721602E80>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x000001772161B420>)>
+    └ <yookassa.client.ApiClient object at 0x0000017721759C90>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x0000017721618E00>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:23 | INFO | ==================================================
+2025-11-30 16:13:23 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:13:23 | INFO | ==================================================
+2025-11-30 16:13:23 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:13:23 | SUCCESS | Конфигурация установлена: account_id=1216074
+2025-11-30 16:13:23 | INFO | Подготовка данных платежа...
+2025-11-30 16:13:23 | DEBUG | Сгенерирован UUID платежа: f7a274ce-dffc-4a98-b5a7-adb42e64d900
+2025-11-30 16:13:23 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:13:23 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:13:23 | DEBUG | URL запроса: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:23 | DEBUG | Idempotence-Key: f7a274ce-dffc-4a98-b5a7-adb42e64d900
+2025-11-30 16:13:23 | ERROR | ==================================================
+2025-11-30 16:13:23 | ERROR | HTTP ошибка при создании платежа: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:23 | ERROR | Код статуса: N/A
+2025-11-30 16:13:23 | ERROR | Детали ответа от API YooKassa:
+2025-11-30 16:13:23 | ERROR | URL: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:23 | ERROR | Статус код: 401
+2025-11-30 16:13:23 | ERROR | Заголовки ответа: {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:13:24 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Length': '194', 'Connection': 'keep-alive', 'Keep-Alive': 'timeout=12', 'Signature': 'v1 30be56b4 1 MGQCMAONi3hRmWHNMmiEE2lc9wVvLz2eZPGIqcvkllVRQHdXN892LqfxwbndWDvTrVkEzQIwagDl8P+xhE/uyNIEx4mIgC7gFdskGANAUl4pkGsLnB9c/YudSCj0gXrHYY46ntHt'}
+2025-11-30 16:13:23 | ERROR | Тело ответа (raw): {
+  "type" : "error",
+  "id" : "019ad4e5-8963-7122-be68-eb2e692172b9",
+  "description" : "Authentication type is not allowed",
+  "parameter" : "Authorization",
+  "code" : "invalid_credentials"
+}
+2025-11-30 16:13:23 | ERROR | Тело ответа (JSON):
+2025-11-30 16:13:23 | ERROR | {
+  "type": "error",
+  "id": "019ad4e5-8963-7122-be68-eb2e692172b9",
+  "description": "Authentication type is not allowed",
+  "parameter": "Authorization",
+  "code": "invalid_credentials"
+}
+2025-11-30 16:13:23 | ERROR | ==================================================
+2025-11-30 16:13:23 | ERROR | Полный traceback ошибки:
+Traceback (most recent call last):
+
+> File "D:\Yang\GigaBridge\test.py", line 46, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('f7a274ce-dffc-4a98-b5a7-adb42e64d900')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x000001B1351676A0>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x000001B134AD5CD0>
+               │        │      │       │        │     │           └ {'Idempotence-Key': 'f7a274ce-dffc-4a98-b5a7-adb42e64d900'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x000001B13503B2E0>
+               │        └ <yookassa.client.ApiClient object at 0x000001B13517E950>
+               └ <yookassa.payment.Payment object at 0x000001B13517E890>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic MTIxNjA3NDp0ZXN0XypnSFJkVERmNVJ2Y0xMZ1VzZjhob29wMTNBc0wyY00tZVpC...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x000001B13503ACA0>
+                   └ <yookassa.client.ApiClient object at 0x000001B13517E950>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:13:24 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x000001B13503B880>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x000001B13517E950>
+    │    │            │            └ <property object at 0x000001B134EFDB70>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x000001B13503B9C0>)>
+    └ <yookassa.client.ApiClient object at 0x000001B13517E950>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x000001B134F05D00>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:44 | INFO | ==================================================
+2025-11-30 16:13:44 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:13:44 | INFO | ==================================================
+2025-11-30 16:13:44 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:13:44 | SUCCESS | Конфигурация установлена: account_id=1216074
+2025-11-30 16:13:44 | INFO | Подготовка данных платежа...
+2025-11-30 16:13:44 | DEBUG | Сгенерирован UUID платежа: e6871fa8-c5d5-4f4c-9182-0b6a0aa2c137
+2025-11-30 16:13:44 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:13:44 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:13:44 | DEBUG | URL запроса: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:44 | DEBUG | Idempotence-Key: e6871fa8-c5d5-4f4c-9182-0b6a0aa2c137
+2025-11-30 16:13:44 | ERROR | ==================================================
+2025-11-30 16:13:44 | ERROR | HTTP ошибка при создании платежа: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:44 | ERROR | Код статуса: N/A
+2025-11-30 16:13:44 | ERROR | Детали ответа от API YooKassa:
+2025-11-30 16:13:44 | ERROR | URL: https://api.yookassa.ru/v3/payments
+2025-11-30 16:13:44 | ERROR | Статус код: 401
+2025-11-30 16:13:44 | ERROR | Заголовки ответа: {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:13:44 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Length': '194', 'Connection': 'keep-alive', 'Keep-Alive': 'timeout=12', 'Signature': 'v1 30be56c8 1 MGQCMFA7p5G2E9rc2WJ1UO8JhIcmD/YW/25kTQmoGJm9UMmqqCWdv4Mrcbh7I0Nfg3Nc/AIwazFKLayG4do6W5VB6fAxd+FgY9mIEPPsBu2z2cyt+TUGcfmUS0PNkxghk8D/d3uB'}
+2025-11-30 16:13:44 | ERROR | Тело ответа (raw): {
+  "type" : "error",
+  "id" : "019ad4e5-db10-7b11-ae3b-f613163471e9",
+  "description" : "Authentication type is not allowed",
+  "parameter" : "Authorization",
+  "code" : "invalid_credentials"
+}
+2025-11-30 16:13:44 | ERROR | Тело ответа (JSON):
+2025-11-30 16:13:44 | ERROR | {
+  "type": "error",
+  "id": "019ad4e5-db10-7b11-ae3b-f613163471e9",
+  "description": "Authentication type is not allowed",
+  "parameter": "Authorization",
+  "code": "invalid_credentials"
+}
+2025-11-30 16:13:44 | ERROR | ==================================================
+2025-11-30 16:13:44 | ERROR | Полный traceback ошибки:
+Traceback (most recent call last):
+
+> File "d:\Yang\GigaBridge\test.py", line 46, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('e6871fa8-c5d5-4f4c-9182-0b6a0aa2c137')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x0000026877F476A0>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x0000026877317790>
+               │        │      │       │        │     │           └ {'Idempotence-Key': 'e6871fa8-c5d5-4f4c-9182-0b6a0aa2c137'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x0000026877E1B2E0>
+               │        └ <yookassa.client.ApiClient object at 0x0000026877CA7A50>
+               └ <yookassa.payment.Payment object at 0x00000268772B6950>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic MTIxNjA3NDp0ZXN0XypnSFJkVERmNVJ2Y0xMZ1VzZjhob29wMTNBc0wyY00tZVpC...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x0000026877E1ACA0>
+                   └ <yookassa.client.ApiClient object at 0x0000026877CA7A50>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:13:44 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x0000026877E1B880>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x0000026877CA7A50>
+    │    │            │            └ <property object at 0x0000026877CDDE90>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x0000026877E1B9C0>)>
+    └ <yookassa.client.ApiClient object at 0x0000026877CA7A50>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x0000026877CE5D00>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:15:18 | INFO | ==================================================
+2025-11-30 16:15:18 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:15:18 | INFO | ==================================================
+2025-11-30 16:15:18 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:15:18 | SUCCESS | Конфигурация установлена: account_id=1216074
+2025-11-30 16:15:18 | DEBUG | Секретный ключ установлен (длина: 50 символов)
+2025-11-30 16:15:18 | INFO | Подготовка данных платежа...
+2025-11-30 16:15:18 | DEBUG | Сгенерирован UUID платежа: 224e067e-67e7-4af4-a37d-7ee4094bd819
+2025-11-30 16:15:18 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:15:18 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:15:18 | DEBUG | URL запроса: https://api.yookassa.ru/v3/payments
+2025-11-30 16:15:18 | DEBUG | Idempotence-Key: 224e067e-67e7-4af4-a37d-7ee4094bd819
+2025-11-30 16:15:19 | ERROR | ==================================================
+2025-11-30 16:15:19 | ERROR | HTTP ошибка при создании платежа: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:15:19 | ERROR | Код статуса: N/A
+2025-11-30 16:15:19 | ERROR | Детали ответа от API YooKassa:
+2025-11-30 16:15:19 | ERROR | URL: https://api.yookassa.ru/v3/payments
+2025-11-30 16:15:19 | ERROR | Статус код: 401
+2025-11-30 16:15:19 | ERROR | Заголовки ответа: {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:15:19 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Length': '194', 'Connection': 'keep-alive', 'Keep-Alive': 'timeout=12', 'Signature': 'v1 30be5727 1 MGQCL0mb8Lz6hIxpyqJSpnOglEBZxhyDKwi4P4bHQWymCzKBfb3Lo3e2zeeXv8D4fLT7AjEAgoyGZ40sULRMuESNy+IfObqbqPext/MR6tFVjOZJnDPgjY4lOdqj5nF7Hssn6ac/'}
+2025-11-30 16:15:19 | ERROR | Тело ответа (raw): {
+  "type" : "error",
+  "id" : "019ad4e7-4cc8-7fd2-8497-c675bff62d47",
+  "description" : "Authentication type is not allowed",
+  "parameter" : "Authorization",
+  "code" : "invalid_credentials"
+}
+2025-11-30 16:15:19 | ERROR | Тело ответа (JSON):
+2025-11-30 16:15:19 | ERROR | {
+  "type": "error",
+  "id": "019ad4e7-4cc8-7fd2-8497-c675bff62d47",
+  "description": "Authentication type is not allowed",
+  "parameter": "Authorization",
+  "code": "invalid_credentials"
+}
+2025-11-30 16:15:19 | ERROR | ==================================================
+2025-11-30 16:15:19 | ERROR | ==================================================
+2025-11-30 16:15:19 | ERROR | ОШИБКА АУТЕНТИФИКАЦИИ!
+2025-11-30 16:15:19 | ERROR | ==================================================
+2025-11-30 16:15:19 | ERROR | Возможные причины:
+2025-11-30 16:15:19 | ERROR | 1. Неверный идентификатор магазина (account_id)
+2025-11-30 16:15:19 | ERROR | 2. Неверный секретный ключ (secret_key)
+2025-11-30 16:15:19 | ERROR | 3. Использование ключей от другого магазина
+2025-11-30 16:15:19 | ERROR | 
+2025-11-30 16:15:19 | ERROR | Как исправить:
+2025-11-30 16:15:19 | ERROR | 1. Войдите в личный кабинет YooKassa: https://yookassa.ru/
+2025-11-30 16:15:19 | ERROR | 2. Перейдите в раздел 'Настройки' -> 'Секретный ключ'
+2025-11-30 16:15:19 | ERROR | 3. Скопируйте идентификатор магазина и секретный ключ
+2025-11-30 16:15:19 | ERROR | 4. Обновите значения в этом файле (строки 18-19)
+2025-11-30 16:15:19 | ERROR | 
+2025-11-30 16:15:19 | ERROR | Для тестирования можно зарегистрировать тестовый магазин:
+2025-11-30 16:15:19 | ERROR | https://yookassa.ru/ (регистрация без указания данных компании)
+2025-11-30 16:15:19 | ERROR | ==================================================
+2025-11-30 16:15:19 | ERROR | Полный traceback ошибки:
+Traceback (most recent call last):
+
+> File "d:\Yang\GigaBridge\test.py", line 63, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('224e067e-67e7-4af4-a37d-7ee4094bd819')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x000001FC5274FC40>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x000001FC51E51A90>
+               │        │      │       │        │     │           └ {'Idempotence-Key': '224e067e-67e7-4af4-a37d-7ee4094bd819'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x000001FC5261B880>
+               │        └ <yookassa.client.ApiClient object at 0x000001FC52762F90>
+               └ <yookassa.payment.Payment object at 0x000001FC52763410>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic MTIxNjA3NDp0ZXN0XypnSFJkVERmNVJ2Y0xMZ1VzZjhob29wMTNBc0wyY00tZVpC...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x000001FC5261B240>
+                   └ <yookassa.client.ApiClient object at 0x000001FC52762F90>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:15:19 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x000001FC5261BE20>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x000001FC52762F90>
+    │    │            │            └ <property object at 0x000001FC524E20C0>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x000001FC5261BF60>)>
+    └ <yookassa.client.ApiClient object at 0x000001FC52762F90>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x000001FC524EA2A0>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:16:47 | INFO | ==================================================
+2025-11-30 16:16:47 | INFO | Начало теста создания платежа YooKassa
+2025-11-30 16:16:47 | INFO | ==================================================
+2025-11-30 16:16:47 | INFO | Настройка конфигурации YooKassa...
+2025-11-30 16:16:47 | SUCCESS | Конфигурация установлена: account_id=512059
+2025-11-30 16:16:47 | DEBUG | Секретный ключ установлен (длина: 50 символов)
+2025-11-30 16:16:47 | INFO | Подготовка данных платежа...
+2025-11-30 16:16:47 | DEBUG | Сгенерирован UUID платежа: d3d54c95-898b-4892-adbb-871b7c39a7c6
+2025-11-30 16:16:47 | DEBUG | Данные платежа: {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.com/return_url'}, 'capture': True, 'description': 'Заказ №1'}
+2025-11-30 16:16:47 | INFO | Отправка запроса на создание платежа...
+2025-11-30 16:16:47 | DEBUG | URL запроса: https://api.yookassa.ru/v3/payments
+2025-11-30 16:16:47 | DEBUG | Idempotence-Key: d3d54c95-898b-4892-adbb-871b7c39a7c6
+2025-11-30 16:16:48 | ERROR | ==================================================
+2025-11-30 16:16:48 | ERROR | HTTP ошибка при создании платежа: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments
+2025-11-30 16:16:48 | ERROR | Код статуса: N/A
+2025-11-30 16:16:48 | ERROR | Детали ответа от API YooKassa:
+2025-11-30 16:16:48 | ERROR | URL: https://api.yookassa.ru/v3/payments
+2025-11-30 16:16:48 | ERROR | Статус код: 401
+2025-11-30 16:16:48 | ERROR | Заголовки ответа: {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:16:48 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Length': '194', 'Connection': 'keep-alive', 'Keep-Alive': 'timeout=12', 'Signature': 'v1 30be5780 1 MGQCMDW3OsJB5ucmIdcZKgBh9jv1XWpT8SQ6HqmADbMsgdlLwxECKDf8m4NcXD9kbfki8QIwEnxvQzSoE3skYTwEODQqKget04j+NVxeHCJ9Fqu/z8OckW3qAHNyS0oqq8/BIDFL'}
+2025-11-30 16:16:48 | ERROR | Тело ответа (raw): {
+  "type" : "error",
+  "id" : "019ad4e8-a8ad-738e-be07-999f9525e6ea",
+  "description" : "Authentication type is not allowed",
+  "parameter" : "Authorization",
+  "code" : "invalid_credentials"
+}
+2025-11-30 16:16:48 | ERROR | Тело ответа (JSON):
+2025-11-30 16:16:48 | ERROR | {
+  "type": "error",
+  "id": "019ad4e8-a8ad-738e-be07-999f9525e6ea",
+  "description": "Authentication type is not allowed",
+  "parameter": "Authorization",
+  "code": "invalid_credentials"
+}
+2025-11-30 16:16:48 | ERROR | ==================================================
+2025-11-30 16:16:48 | ERROR | ==================================================
+2025-11-30 16:16:48 | ERROR | ОШИБКА АУТЕНТИФИКАЦИИ!
+2025-11-30 16:16:48 | ERROR | ==================================================
+2025-11-30 16:16:48 | ERROR | Возможные причины:
+2025-11-30 16:16:48 | ERROR | 1. Неверный идентификатор магазина (account_id)
+2025-11-30 16:16:48 | ERROR | 2. Неверный секретный ключ (secret_key)
+2025-11-30 16:16:48 | ERROR | 3. Использование ключей от другого магазина
+2025-11-30 16:16:48 | ERROR | 
+2025-11-30 16:16:48 | ERROR | Как исправить:
+2025-11-30 16:16:48 | ERROR | 1. Войдите в личный кабинет YooKassa: https://yookassa.ru/
+2025-11-30 16:16:48 | ERROR | 2. Перейдите в раздел 'Настройки' -> 'Секретный ключ'
+2025-11-30 16:16:48 | ERROR | 3. Скопируйте идентификатор магазина и секретный ключ
+2025-11-30 16:16:48 | ERROR | 4. Обновите значения в этом файле (строки 18-19)
+2025-11-30 16:16:48 | ERROR | 
+2025-11-30 16:16:48 | ERROR | Для тестирования можно зарегистрировать тестовый магазин:
+2025-11-30 16:16:48 | ERROR | https://yookassa.ru/ (регистрация без указания данных компании)
+2025-11-30 16:16:48 | ERROR | ==================================================
+2025-11-30 16:16:48 | ERROR | Полный traceback ошибки:
+Traceback (most recent call last):
+
+> File "d:\Yang\GigaBridge\test.py", line 63, in <module>
+    payment = Payment.create(payment_data, payment_id)
+              │       │      │             └ UUID('d3d54c95-898b-4892-adbb-871b7c39a7c6')
+              │       │      └ {'amount': {'value': '100.00', 'currency': 'RUB'}, 'confirmation': {'type': 'redirect', 'return_url': 'https://www.example.co...
+              │       └ <classmethod(<function Payment.create at 0x000001F298D4FC40>)>
+              └ <class 'yookassa.payment.Payment'>
+
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\payment.py", line 58, in create
+    response = instance.client.request(HttpVerb.POST, path, None, headers, params_object)
+               │        │      │       │        │     │           │        └ <yookassa.domain.request.payment_request.PaymentRequest object at 0x000001F298D63750>
+               │        │      │       │        │     │           └ {'Idempotence-Key': 'd3d54c95-898b-4892-adbb-871b7c39a7c6'}
+               │        │      │       │        │     └ '/payments'
+               │        │      │       │        └ 'post'
+               │        │      │       └ <class 'yookassa.domain.common.http_verb.HttpVerb'>
+               │        │      └ <function ApiClient.request at 0x000001F298C1B880>
+               │        └ <yookassa.client.ApiClient object at 0x000001F298D63BD0>
+               └ <yookassa.payment.Payment object at 0x000001F2985EA490>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 38, in request
+    raw_response = self.execute(body, method, path, query_params, request_headers)
+                   │    │       │     │       │     │             └ {'Content-type': 'application/json', 'Authorization': 'Basic NTEyMDU5OnRlc3RfKmdIUmRURGY1UnZjTExnVXNmOGhvb3AxM0FzTDJjTS1lWkI2...
+                   │    │       │     │       │     └ None
+                   │    │       │     │       └ '/payments'
+                   │    │       │     └ 'post'
+                   │    │       └ {'amount': {'currency': 'RUB', 'value': '100.00'}, 'capture': True, 'confirmation': {'return_url': 'https://www.example.com/r...
+                   │    └ <function ApiClient.execute at 0x000001F298C1B240>
+                   └ <yookassa.client.ApiClient object at 0x000001F298D63BD0>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 59, in execute
+    self.log_response(raw_response.content, self.get_response_info(raw_response), raw_response.headers)
+    │    │            │            │        │    │                 │              │            └ {'Server': 'Angie', 'Date': 'Sun, 30 Nov 2025 13:16:48 GMT', 'Content-Type': 'application/json;charset=UTF-8', 'Content-Lengt...
+    │    │            │            │        │    │                 │              └ <Response [401]>
+    │    │            │            │        │    │                 └ <Response [401]>
+    │    │            │            │        │    └ <staticmethod(<function ApiClient.get_response_info at 0x000001F298C1BE20>)>
+    │    │            │            │        └ <yookassa.client.ApiClient object at 0x000001F298D63BD0>
+    │    │            │            └ <property object at 0x000001F298AE20C0>
+    │    │            └ <Response [401]>
+    │    └ <staticmethod(<function ApiClient.log_response at 0x000001F298C1BF60>)>
+    └ <yookassa.client.ApiClient object at 0x000001F298D63BD0>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\yookassa\client.py", line 119, in get_response_info
+    "raise_for_status": response.raise_for_status(),
+                        │        └ <function Response.raise_for_status at 0x000001F298AEA2A0>
+                        └ <Response [401]>
+  File "D:\Yang\GigaBridge\.venv\Lib\site-packages\requests\models.py", line 1021, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+          │         │                        └ <Response [401]>
+          │         └ '401 Client Error:  for url: https://api.yookassa.ru/v3/payments'
+          └ <class 'requests.exceptions.HTTPError'>
+
+requests.exceptions.HTTPError: 401 Client Error:  for url: https://api.yookassa.ru/v3/payments

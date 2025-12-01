@@ -1,0 +1,66 @@
+services:
+  bot:
+    build: .
+    container_name: gigabridge_bot
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    volumes:
+      - ./:/app
+    command: python main.py
+
+  db:
+    image: postgres:16
+    container_name: gigabridge_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 210203
+      POSTGRES_DB: gigabridge_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # Именованный volume для персистентного хранения данных
+      # Данные сохраняются между перезапусками контейнера
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gigabridge_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: gigabridge_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      # Именованный volume для персистентного хранения данных Redis
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  # Именованный volume - данные сохраняются между перезапусками
+  # Данные хранятся в Docker volume, который не удаляется при docker-compose down
+  # 
+  # ⚠️ ВАЖНО: 
+  # - docker compose down        -> останавливает контейнеры, ДАННЫЕ СОХРАНЯЮТСЯ
+  # - docker compose down -v      -> останавливает контейнеры И УДАЛЯЕТ ВСЕ ДАННЫЕ!
+  # 
+  # Для полного удаления данных используйте: docker compose down -v
+  # Для обычной остановки БЕЗ потери данных: docker compose down
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
