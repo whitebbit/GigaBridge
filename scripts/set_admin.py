@@ -15,6 +15,7 @@ sys.path.insert(0, str(project_root))
 from database.base import async_session
 from database.models import User
 from sqlalchemy import select
+import uuid
 
 
 async def set_admin_by_id(tg_id: str):
@@ -30,7 +31,8 @@ async def set_admin_by_id(tg_id: str):
             user = User(
                 tg_id=str(tg_id),
                 username=None,
-                is_admin=True
+                is_admin=True,
+                sub_id=str(uuid.uuid4())  # Генерируем subId для пользователя
             )
             session.add(user)
         else:

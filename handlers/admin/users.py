@@ -363,10 +363,11 @@ async def subscription_extend_callback(callback: types.CallbackQuery):
         if tariff:
             _, duration_timedelta = get_subscription_duration(tariff.duration_days)
         else:
-            # Если тарифа нет, используем стандартную длительность
+            # Если тарифа нет, используем стандартную длительность (30 дней по умолчанию)
             if config.TEST_MODE:
                 duration_timedelta = timedelta(minutes=1)
             else:
+                # Используем стандартную длительность 30 дней, если тариф не найден
                 duration_timedelta = timedelta(days=30)
         
         # Определяем новую дату окончания
@@ -385,13 +386,19 @@ async def subscription_extend_callback(callback: types.CallbackQuery):
         )
         
         # Если подписка была приостановлена, активируем ее через API
-        if subscription.status == "paused" and subscription.x3ui_client_email:
+        if subscription.status == "paused" and subscription.sub_id:
             server = await get_server_by_id(subscription.server_id) if subscription.server_id else None
             if server:
                 try:
-                    x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password)
-                    await x3ui_client.enable_client(subscription.x3ui_client_email)
+                    x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password, server.ssl_certificate)
+                    # Включаем всех клиентов с этим subID на всех инбаундах
+                    result = await x3ui_client.enable_all_clients_by_sub_id(subscription.sub_id)
                     await x3ui_client.close()
+                    if result and not result.get("error"):
+                        enabled_clients = result.get("enabled", [])
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"✅ Включено {len(enabled_clients)} клиентов с subID {subscription.sub_id} при продлении")
                 except Exception as e:
                     import logging
                     logger = logging.getLogger(__name__)
@@ -468,8 +475,8 @@ async def subscription_pause_callback(callback: types.CallbackQuery):
         await callback.message.answer("❌ Подписка не найдена!")
         return
     
-    if not subscription.x3ui_client_email:
-        await callback.message.answer("❌ У подписки нет email клиента для управления через API!")
+    if not subscription.sub_id:
+        await callback.message.answer("❌ У подписки нет subID для управления через API!")
         return
     
     server = await get_server_by_id(subscription.server_id) if subscription.server_id else None
@@ -478,10 +485,15 @@ async def subscription_pause_callback(callback: types.CallbackQuery):
         return
     
     try:
-        # Отключаем клиента через API
-        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password)
-        result = await x3ui_client.disable_client(subscription.x3ui_client_email)
+        # Отключаем всех клиентов с этим subID на всех инбаундах через API
+        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password, server.ssl_certificate)
+        result = await x3ui_client.disable_all_clients_by_sub_id(subscription.sub_id)
         await x3ui_client.close()
+        
+        if result and result.get("error"):
+            error_msg = result.get("message", "Неизвестная ошибка")
+            await callback.message.answer(f"❌ Ошибка при остановке подписки: {error_msg}")
+            return
         
         if result and not result.get("error"):
             # Сбрасываем срок подписки в 0 (expire_date = текущее время)
@@ -550,8 +562,8 @@ async def subscription_resume_callback(callback: types.CallbackQuery):
         await callback.message.answer("❌ Подписка не найдена!")
         return
     
-    if not subscription.x3ui_client_email:
-        await callback.message.answer("❌ У подписки нет email клиента для управления через API!")
+    if not subscription.sub_id:
+        await callback.message.answer("❌ У подписки нет subID для управления через API!")
         return
     
     server = await get_server_by_id(subscription.server_id) if subscription.server_id else None
@@ -560,10 +572,15 @@ async def subscription_resume_callback(callback: types.CallbackQuery):
         return
     
     try:
-        # Включаем клиента через API
-        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password)
-        result = await x3ui_client.enable_client(subscription.x3ui_client_email)
+        # Включаем всех клиентов с этим subID на всех инбаундах через API
+        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password, server.ssl_certificate)
+        result = await x3ui_client.enable_all_clients_by_sub_id(subscription.sub_id)
         await x3ui_client.close()
+        
+        if result and result.get("error"):
+            error_msg = result.get("message", "Неизвестная ошибка")
+            await callback.message.answer(f"❌ Ошибка при возобновлении подписки: {error_msg}")
+            return
         
         if result and not result.get("error"):
             # Возобновляем срок подписки (добавляем 30 дней или 1 минуту в зависимости от TEST_MODE)
@@ -765,53 +782,120 @@ async def create_subscription_location_selected(callback: types.CallbackQuery, s
         # Создаем клиента в 3x-ui
         x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password)
         
-        # Генерируем уникальный email
-        unique_id = str(uuid_lib.uuid4())[:8]
+        # Получаем название локации
+        location_name = location.name if location else "Неизвестно"
+        
+        # Генерируем уникальный subID для этой подписки (будет использован как seed для детерминированной генерации)
+        subscription_sub_id = str(uuid_lib.uuid4())
+        
+        # Генерируем уникальное название локации (будет использовано для email и идентификатора подписки)
+        # Используем subscription_sub_id как seed для детерминированной генерации
+        from utils.db import generate_location_unique_name
+        location_unique_name = generate_location_unique_name(location_name, seed=subscription_sub_id)
+        
+        # Извлекаем уникальный код из location_unique_name (убираем название локации и дефис)
+        # Формат: {location_slug}-{unique_code}, нам нужен только unique_code
+        unique_code = location_unique_name.split('-')[-1] if '-' in location_unique_name else location_unique_name
+        
+        # Подготавливаем username для использования в email
         if user.username:
-            client_email = f"{user.username}_{unique_id}"
+            username = user.username
         else:
-            client_email = f"user_{user.tg_id}_{unique_id}"
+            username = f"user_{user.tg_id}"
+        
+        # Нормализуем название локации для использования в email (транслитерация в латиницу, lowercase)
+        import re
+        import unicodedata
+        translit_map = {
+            'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+            'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+            'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+            'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+            'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+        }
+        normalized = unicodedata.normalize('NFKD', location_name)
+        location_slug = ''.join(translit_map.get(char.lower(), char.lower()) for char in normalized)
+        location_slug = re.sub(r'[^a-z0-9]', '', location_slug)
         
         # Определяем дни для API (0 = без ограничения)
         api_days = 0  # Без ограничения по времени в API
         
-        # Добавляем клиента в 3x-ui
-        add_result = await x3ui_client.add_client(
-            email=client_email,
+        # Создаем клиентов во всех инбаундах на основе первого клиента каждого инбаунда
+        # Для каждого инбаунда берем первого клиента как шаблон, меняем только уникальные поля
+        # Формат email: {location_name}@{protocol}&{username}&{unique_code}
+        create_result = await x3ui_client.add_client_to_all_inbounds(
+            location_name=location_slug,
+            username=username,
+            unique_code=unique_code,
             days=api_days,
             tg_id=str(user.tg_id),
-            limit_ip=3
+            limit_ip=3,
+            sub_id=subscription_sub_id
         )
         
-        if not add_result or (isinstance(add_result, dict) and add_result.get("error")):
-            error_msg = add_result.get("message", "Неизвестная ошибка") if isinstance(add_result, dict) else "Ошибка API"
+        # Проверяем результат создания
+        if not create_result:
             await x3ui_client.close()
-            await callback.message.answer(f"❌ Ошибка при создании клиента в 3x-ui: {error_msg}")
+            await callback.message.answer("❌ API 3x-ui вернул пустой ответ")
             await state.clear()
             return
         
-        # Получаем client_id
-        x3ui_client_id = None
-        if isinstance(add_result, dict):
-            x3ui_client_id = add_result.get("client_id") or add_result.get("id")
+        if isinstance(create_result, dict) and create_result.get("error"):
+            error_msg = create_result.get("message", "Неизвестная ошибка")
+            # Если хотя бы один клиент создан, продолжаем, иначе выбрасываем ошибку
+            if len(create_result.get("created", [])) == 0:
+                await x3ui_client.close()
+                await callback.message.answer(f"❌ Ошибка при создании клиентов: {error_msg}")
+                await state.clear()
+                return
+            else:
+                logger.warning(f"⚠️ Создано клиентов: {len(create_result.get('created', []))}, но были ошибки: {error_msg}")
         
-        if not x3ui_client_id:
-            client_info = await x3ui_client.get_client_by_email(client_email)
-            if client_info:
-                x3ui_client_id = client_info.get("id") or client_email
+        # Получаем email первого созданного клиента для сохранения в БД
+        # Или используем формат для VLESS, если есть VLESS инбаунд
+        created_clients = create_result.get("created", [])
+        if created_clients:
+            # Ищем VLESS клиента в первую очередь, если есть
+            vless_client = next((c for c in created_clients if c.get("protocol") == "vless"), None)
+            if vless_client:
+                client_email = vless_client.get("email")
+            else:
+                # Берем первого созданного клиента
+                client_email = created_clients[0].get("email")
+        else:
+            # Fallback: используем формат для VLESS
+            client_email = f"{location_slug}@vless&{username}&{unique_code}"
         
-        if not x3ui_client_id:
-            x3ui_client_id = client_email
+        logger.info(f"✅ Создано клиентов во всех инбаундах: {len(created_clients)}/{create_result.get('total_inbounds', 0)}")
+        for client_info in created_clients:
+            network = client_info.get('network', 'N/A')
+            protocol = client_info.get('protocol', 'N/A')
+            logger.info(f"   - Inbound {client_info.get('inbound_id')} ({protocol}, network: {network}): {client_info.get('email')}")
         
-        # Получаем VLESS ссылку
-        x3ui_subscription_link = await x3ui_client.get_client_vless_link(
-            client_email=client_email,
-            client_username=client_email,
-            server_pbk=server.pbk
+        # Получаем ключи подписки по subID (это вернет список ключей для клиентов с этим subID)
+        import json
+        client_keys_list = await x3ui_client.get_client_keys_from_subscription(
+            subscription_sub_id
         )
         
-        if not x3ui_subscription_link:
-            x3ui_subscription_link = await x3ui_client.get_client_subscription_link(client_email)
+        # Преобразуем список ключей в JSON строку для сохранения в БД
+        if client_keys_list:
+            x3ui_subscription_link = json.dumps(client_keys_list, ensure_ascii=False)
+        else:
+            # Пробуем получить ключ напрямую для клиента
+            vless_link = await x3ui_client.get_client_vless_link(
+            client_email=client_email,
+            client_username=client_email,
+        )
+            if vless_link:
+                x3ui_subscription_link = json.dumps([{"vless_link": vless_link, "client_email": client_email}], ensure_ascii=False)
+            else:
+            # Fallback на старый метод (для обратной совместимости)
+                old_link = await x3ui_client.get_client_subscription_link(client_email)
+                if old_link:
+                    x3ui_subscription_link = json.dumps([{"subscription_link": old_link, "client_email": client_email}], ensure_ascii=False)
+                else:
+                    x3ui_subscription_link = None
         
         await x3ui_client.close()
         
@@ -823,6 +907,8 @@ async def create_subscription_location_selected(callback: types.CallbackQuery, s
             tariff_id=tariff.id,
             x3ui_client_id=x3ui_subscription_link,
             x3ui_client_email=client_email,
+            sub_id=subscription_sub_id,  # Уникальный subID для этой подписки
+            location_unique_name=location_unique_name,  # Сохраняем уникальное название локации
             status="active",
             expire_date=expire_date,
             traffic_limit=tariff.traffic_limit

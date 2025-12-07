@@ -1,5 +1,5 @@
 from database.base import async_session
-from database.models import User, Server, Payment, Subscription, Tariff, Location, PromoCode, PromoCodeUsage, SupportTicket
+from database.models import User, Server, Payment, Subscription, Tariff, Location, PromoCode, PromoCodeUsage, SupportTicket, Platform, Tutorial, TutorialFile
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional, List
@@ -102,72 +102,121 @@ def utc_to_moscow(utc_datetime: datetime) -> datetime:
     return utc_to_user_timezone(utc_datetime, timezone_offset=3)
 
 
+def generate_location_unique_name(location_name: str, subscription_id: int = None, seed: str = None) -> str:
+    """
+    Генерирует уникальное название локации в формате {location_slug}-{unique_id}
+    Например: "moscow-a1b2c3" или "sankt-peterburg-x9y8z7"
+    
+    Args:
+        location_name: Название локации (например, "Москва", "Санкт-Петербург")
+        subscription_id: ID подписки для генерации уникального идентификатора (опционально)
+        seed: Семя для детерминированной генерации (опционально, если не указано - генерируется случайно)
+    
+    Returns:
+        Уникальное название локации в нижнем регистре с дефисами
+    """
+    import hashlib
+    import unicodedata
+    
+    # Транслитерация кириллицы в латиницу
+    translit_map = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+        'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+        'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+        'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch',
+        'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+    }
+    
+    # Нормализуем строку (убираем диакритические знаки)
+    normalized = unicodedata.normalize('NFKD', location_name)
+    
+    # Транслитерируем
+    transliterated = ''.join(translit_map.get(char, char) for char in normalized)
+    
+    # Убираем все кроме букв, цифр и пробелов, заменяем пробелы на дефисы
+    slug = re.sub(r'[^a-zA-Z0-9\s-]', '', transliterated)
+    slug = re.sub(r'\s+', '-', slug.strip())
+    slug = re.sub(r'-+', '-', slug)  # Убираем множественные дефисы
+    slug = slug.lower()
+    
+    # Если slug пустой, используем fallback
+    if not slug:
+        slug = f"loc{subscription_id}" if subscription_id else "location"
+    
+    # Генерируем детерминированный уникальный идентификатор
+    # Используем seed если передан, иначе генерируем на основе location_name и subscription_id
+    if seed:
+        # Используем переданное seed для генерации
+        hash_input = seed
+    elif subscription_id is not None:
+        # Детерминированная генерация на основе location_name и subscription_id
+        hash_input = f"{location_name}-{subscription_id}"
+    else:
+        # Если нет ни seed, ни subscription_id, используем только location_name
+        hash_input = location_name
+    
+    # Создаем хеш для детерминированной генерации
+    hash_obj = hashlib.md5(hash_input.encode('utf-8'))
+    unique_id = hash_obj.hexdigest()[:6]  # Первые 6 символов MD5 хеша
+    
+    return f"{slug}-{unique_id}"
+
+
 def get_subscription_identifier(subscription: Subscription, location_name: str = None) -> str:
     """
-    Генерирует уникальный идентификатор подписки в формате {LOCATION_CODE}-{ID}
+    Генерирует уникальный идентификатор подписки в формате {LOCATION_UNIQUE_NAME}
+    Использует сохраненное location_unique_name, если оно есть, иначе генерирует новое
     
     Args:
         subscription: Объект подписки
         location_name: Название локации (опционально, если не передано, будет получено из БД)
     
     Returns:
-        Строка в формате "MOS-123" или "SPB-456"
+        Строка в формате "moscow-a1b2c3" или "sankt-peterburg-x9y8z7"
     """
-    # Если название локации не передано, используем ID подписки как fallback
+    # Если у подписки уже есть сохраненное уникальное название, используем его
+    if subscription.location_unique_name:
+        return subscription.location_unique_name
+    
+    # Иначе генерируем новое (для старых подписок без сохраненного названия)
     if not location_name or location_name == "Неизвестно":
         location_name = f"LOC{subscription.id}"
     
-    # Убираем пробелы и спецсимволы, оставляем только буквы
-    clean_name = re.sub(r'[^a-zA-Zа-яА-ЯёЁ]', '', location_name)
-    
-    # Берем первые 3 буквы
-    if len(clean_name) >= 3:
-        location_code = clean_name[:3].upper()
-    else:
-        # Если меньше 3 символов, используем все что есть и дополняем
-        location_code = clean_name.upper().ljust(3, 'X')
-    
-    # Если все еще пусто (только спецсимволы были), используем fallback
-    if not location_code or location_code == 'XXX':
-        location_code = f"LOC{subscription.id}"[:3].upper()
-    
-    return f"{location_code}-{subscription.id}"
+    return generate_location_unique_name(location_name, subscription.id)
 
 
 async def get_user_by_tg_id(tg_id: str, use_cache: bool = True) -> Optional[User]:
-    """Получить пользователя по Telegram ID с кэшированием"""
+    """Получить пользователя по Telegram ID с кэшированием ID"""
     tg_id_str = str(tg_id)
     cache_key = CacheKeys.USER_BY_TG_ID.format(tg_id=tg_id_str)
     
-    # Проверяем кэш
+    # Проверяем кэш - если есть ID, используем его для быстрого запроса
+    cached_id = None
     if use_cache:
         cached = await CacheService.get(cache_key)
-        if cached:
-            # Восстанавливаем объект User из словаря (упрощенная версия)
-            user = User(**cached)
-            return user
+        if cached and isinstance(cached, dict) and 'id' in cached:
+            cached_id = cached.get('id')
     
     async with async_session() as session:
+        if cached_id:
+            # Быстрый запрос по ID (есть индекс)
+            result = await session.execute(select(User).where(User.id == cached_id))
+            user = result.scalar_one_or_none()
+            if user and user.tg_id == tg_id_str:
+                return user
+        
+        # Обычный запрос по tg_id
         result = await session.execute(select(User).where(User.tg_id == tg_id_str))
         user = result.scalar_one_or_none()
         
-        # Кэшируем результат на 5 минут
+        # Кэшируем только ID для быстрого доступа
         if user and use_cache:
-            user_dict = {
-                'id': user.id,
-                'tg_id': user.tg_id,
-                'username': user.username,
-                'x3ui_id': user.x3ui_id,
-                'plan_id': user.plan_id,
-                'expire_date': user.expire_date.isoformat() if user.expire_date else None,
-                'status': user.status,
-                'traffic_used': user.traffic_used,
-                'traffic_limit': user.traffic_limit,
-                'is_admin': user.is_admin,
-                'used_first_purchase_discount': user.used_first_purchase_discount,
-                'created_at': user.created_at.isoformat() if user.created_at else None,
-            }
-            await CacheService.set(cache_key, user_dict, ttl=300)
+            await CacheService.set(cache_key, {'id': user.id}, ttl=300)
         
         return user
 
@@ -176,6 +225,15 @@ async def is_admin(tg_id: str) -> bool:
     """Проверить, является ли пользователь администратором"""
     user = await get_user_by_tg_id(tg_id)
     return user.is_admin if user else False
+
+
+async def get_all_admins() -> list[User]:
+    """Получить всех администраторов"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.is_admin == True)
+        )
+        return list(result.scalars().all())
 
 
 async def get_all_servers() -> list[Server]:
@@ -189,51 +247,43 @@ async def get_all_servers() -> list[Server]:
         return list(result.unique().scalars().all())
 
 
+def generate_subscription_link(server: Server, sub_id: str) -> str:
+    """
+    Генерирует ссылку на подписку на основе настроек сервера
+    
+    Args:
+        server: Объект сервера
+        sub_id: ID подписки (sub_id)
+    
+    Returns:
+        Ссылка на подписку в формате {sub_url}/{sub_id} или http://{server_ip}:2096/sub/{sub_id}
+    """
+    if server.sub_url:
+        # Используем кастомный sub_url из настроек сервера
+        sub_url = server.sub_url.rstrip('/')
+        return f"{sub_url}/{sub_id}"
+    else:
+        # Используем старый формат: извлекаем IP из api_url
+        from urllib.parse import urlparse
+        try:
+            parsed_url = urlparse(server.api_url)
+            server_ip = parsed_url.hostname or parsed_url.netloc.split(':')[0]
+        except:
+            server_ip = "vpn-x3.ru"  # Fallback
+        return f"http://{server_ip}:2096/sub/{sub_id}"
+
+
 async def get_server_by_id(server_id: int, use_cache: bool = True) -> Optional[Server]:
-    """Получить сервер по ID с загруженной локацией и кэшированием"""
-    cache_key = CacheKeys.SERVER_BY_ID.format(id=server_id)
-    
-    # Проверяем кэш
-    if use_cache:
-        cached = await CacheService.get(cache_key)
-        if cached:
-            # Восстанавливаем объект Server из словаря
-            server = Server(**cached)
-            # Загружаем локацию отдельно если нужно
-            if cached.get('location_id'):
-                location = await get_location_by_id(cached['location_id'], use_cache=True)
-                if location:
-                    server.location = location
-            return server
-    
+    """Получить сервер по ID с загруженной локацией"""
+    # Кэширование не используется для объектов ORM - всегда загружаем из БД
+    # но используем joinedload для оптимизации (один запрос вместо двух)
     async with async_session() as session:
         result = await session.execute(
             select(Server)
             .options(joinedload(Server.location))
             .where(Server.id == server_id)
         )
-        server = result.unique().scalar_one_or_none()
-        
-        # Кэшируем результат на 10 минут
-        if server and use_cache:
-            server_dict = {
-                'id': server.id,
-                'name': server.name,
-                'api_url': server.api_url,
-                'api_username': server.api_username,
-                'api_password': server.api_password,
-                'pbk': server.pbk,
-                'location_id': server.location_id,
-                'description': server.description,
-                'is_active': server.is_active,
-                'max_users': server.max_users,
-                'current_users': server.current_users,
-                'created_at': server.created_at.isoformat() if server.created_at else None,
-                'updated_at': server.updated_at.isoformat() if server.updated_at else None,
-            }
-            await CacheService.set(cache_key, server_dict, ttl=600)
-        
-        return server
+        return result.unique().scalar_one_or_none()
 
 
 async def create_server(
@@ -243,7 +293,10 @@ async def create_server(
     api_password: str,
     location_id: int,
     description: str = None,
-    max_users: int = None
+    max_users: int = None,
+    ssl_certificate: str = None,
+    payment_days: int = None,
+    sub_url: str = None
 ) -> Server:
     """
     Создать новый сервер
@@ -256,7 +309,16 @@ async def create_server(
         location_id: ID локации
         description: Описание сервера (опционально)
         max_users: Максимальное количество пользователей (опционально)
+        ssl_certificate: SSL сертификат в формате PEM (опционально)
+        payment_days: Количество дней, на которое куплен сервер (опционально)
+        sub_url: URL шаблон для генерации ссылок подписки (формат: {sub_url}/{subID}, опционально)
     """
+    from datetime import datetime, timedelta
+    
+    payment_expire_date = None
+    if payment_days and payment_days > 0:
+        payment_expire_date = datetime.utcnow() + timedelta(days=payment_days)
+    
     async with async_session() as session:
         server = Server(
             name=name,
@@ -265,11 +327,16 @@ async def create_server(
             api_password=api_password,
             location_id=location_id,
             description=description,
-            max_users=max_users
+            max_users=max_users,
+            ssl_certificate=ssl_certificate,
+            payment_days=payment_days,
+            payment_expire_date=payment_expire_date,
+            sub_url=sub_url
         )
         session.add(server)
         await session.commit()
         await session.refresh(server)
+        
         return server
 
 
@@ -289,11 +356,39 @@ async def update_server(server_id: int, **kwargs) -> Optional[Server]:
         if not server:
             return None
         
+        # Сохраняем старые значения критичных полей для отслеживания изменений
+        old_location_id = server.location_id
+        old_api_url = server.api_url
+        old_api_username = server.api_username
+        old_api_password = server.api_password
+        
         # Список полей, которые можно установить в None
-        nullable_fields = {'description', 'max_users', 'pbk'}
+        nullable_fields = {'description', 'max_users', 'ssl_certificate', 'payment_days', 'payment_expire_date'}
+        
+        # Список критичных полей, изменение которых требует уведомления
+        critical_fields = {'api_url', 'api_username', 'api_password', 'location_id'}
+        changed_critical_fields = []
         
         for key, value in kwargs.items():
             if hasattr(server, key):
+                # Проверяем, изменилось ли критичное поле
+                if key in critical_fields:
+                    old_value = getattr(server, key)
+                    # Для location_id сравниваем с сохраненным значением
+                    if key == 'location_id':
+                        old_value = old_location_id
+                    
+                    # Проверяем, действительно ли значение изменилось
+                    if old_value != value:
+                        # Для nullable полей проверяем, что новое значение не None (или старое было не None)
+                        if key in nullable_fields:
+                            if old_value != value and (value is not None or old_value is not None):
+                                changed_critical_fields.append(key)
+                        else:
+                            # Для не-nullable полей сравниваем значения
+                            if old_value != value and value is not None:
+                                changed_critical_fields.append(key)
+                
                 # Для nullable полей разрешаем устанавливать None
                 if key in nullable_fields:
                     setattr(server, key, value)
@@ -303,6 +398,46 @@ async def update_server(server_id: int, **kwargs) -> Optional[Server]:
         
         await session.commit()
         await session.refresh(server)
+        
+        # Если были изменены критичные поля, отправляем уведомления пользователям
+        if changed_critical_fields:
+            # Отправляем уведомления асинхронно (не блокируя ответ)
+            try:
+                from services.server_notifications import notify_users_about_server_changes
+                import asyncio
+                
+                # Если изменилась локация, уведомляем пользователей обеих локаций
+                if 'location_id' in changed_critical_fields:
+                    # Уведомляем пользователей старой локации
+                    asyncio.create_task(
+                        notify_users_about_server_changes(
+                            server_id=server_id,
+                            location_id=old_location_id,
+                            changed_fields=changed_critical_fields
+                        )
+                    )
+                    # Уведомляем пользователей новой локации
+                    asyncio.create_task(
+                        notify_users_about_server_changes(
+                            server_id=server_id,
+                            location_id=server.location_id,
+                            changed_fields=changed_critical_fields
+                        )
+                    )
+                else:
+                    # Используем текущую location_id
+                    asyncio.create_task(
+                        notify_users_about_server_changes(
+                            server_id=server_id,
+                            location_id=server.location_id,
+                            changed_fields=changed_critical_fields
+                        )
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"❌ Ошибка при отправке уведомлений об изменениях сервера {server_id}: {e}")
+        
         return server
 
 
@@ -396,6 +531,20 @@ async def update_user(user_id: int, **kwargs) -> Optional[User]:
             if hasattr(user, key) and value is not None:
                 setattr(user, key, value)
         
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
+async def update_user_email(tg_id: str, email: str) -> Optional[User]:
+    """Обновить email пользователя по tg_id"""
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.tg_id == str(tg_id)))
+        user = result.scalar_one_or_none()
+        if not user:
+            return None
+        
+        user.email = email
         await session.commit()
         await session.refresh(user)
         return user
@@ -556,38 +705,56 @@ async def mark_user_used_discount(user_id: int) -> bool:
 
 
 async def get_all_active_subscriptions() -> List[Subscription]:
-    """Получить все активные подписки"""
+    """Получить все активные подписки с предзагрузкой связанных данных (оптимизация N+1)
+    Включает приватные подписки, но они будут пропущены в checker"""
     async with async_session() as session:
         result = await session.execute(
-            select(Subscription).where(Subscription.status == "active")
+            select(Subscription)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
+            .where(Subscription.status == "active")
         )
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
 
 async def get_all_expired_subscriptions() -> List[Subscription]:
-    """Получить все истекшие подписки"""
+    """Получить все истекшие подписки с предзагрузкой связанных данных (оптимизация N+1)
+    Исключает приватные (бессрочные) подписки - они не должны истекать"""
     async with async_session() as session:
         result = await session.execute(
-            select(Subscription).where(Subscription.status == "expired")
+            select(Subscription)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
+            .where(
+                and_(
+                    Subscription.status == "expired",
+                    Subscription.is_private == False  # Исключаем бессрочные подписки
+                )
+            )
         )
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
 
 async def check_and_block_expired_subscriptions() -> int:
-    """Проверить и заблокировать истекшие подписки. Возвращает количество заблокированных."""
+    """Проверить и заблокировать истекшие подписки. Возвращает количество заблокированных.
+    Бессрочные (приватные) подписки не проверяются и не блокируются."""
     from datetime import datetime
     blocked_count = 0
     
     async with async_session() as session:
-        # Получаем все активные подписки
+        # Получаем все активные подписки, исключая бессрочные (приватные)
         result = await session.execute(
-            select(Subscription).where(Subscription.status == "active")
+            select(Subscription).where(
+                and_(
+                    Subscription.status == "active",
+                    Subscription.is_private == False  # Исключаем бессрочные подписки
+                )
+            )
         )
         subscriptions = result.scalars().all()
         
         current_time = datetime.utcnow()
         
         for subscription in subscriptions:
+            # Проверяем только подписки с датой истечения
             if subscription.expire_date and subscription.expire_date < current_time:
                 subscription.status = "expired"
                 blocked_count += 1
@@ -605,9 +772,12 @@ async def create_subscription(
     tariff_id: int,
     x3ui_client_id: str = None,
     x3ui_client_email: str = None,
+    sub_id: str = None,
+    location_unique_name: str = None,
     status: str = "active",
     expire_date = None,
-    traffic_limit: float = 0.0
+    traffic_limit: float = 0.0,
+    is_private: bool = False
 ) -> Subscription:
     """Создать новую подписку"""
     async with async_session() as session:
@@ -617,9 +787,12 @@ async def create_subscription(
             tariff_id=tariff_id,
             x3ui_client_id=x3ui_client_id,
             x3ui_client_email=x3ui_client_email,
+            sub_id=sub_id,
+            location_unique_name=location_unique_name,
             status=status,
             expire_date=expire_date,
-            traffic_limit=traffic_limit
+            traffic_limit=traffic_limit,
+            is_private=is_private
         )
         session.add(subscription)
         await session.commit()
@@ -628,23 +801,26 @@ async def create_subscription(
 
 
 async def get_user_subscriptions(user_id: int) -> List[Subscription]:
-    """Получить все подписки пользователя"""
+    """Получить все подписки пользователя с предзагрузкой связанных данных (оптимизация N+1)"""
     async with async_session() as session:
         result = await session.execute(
             select(Subscription)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
             .where(Subscription.user_id == user_id)
             .order_by(Subscription.created_at.desc())
         )
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
 
 async def get_subscription_by_id(subscription_id: int) -> Optional[Subscription]:
-    """Получить подписку по ID"""
+    """Получить подписку по ID с предзагрузкой связанных данных (оптимизация N+1)"""
     async with async_session() as session:
         result = await session.execute(
-            select(Subscription).where(Subscription.id == subscription_id)
+            select(Subscription)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
+            .where(Subscription.id == subscription_id)
         )
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
 
 
 async def get_user_subscriptions_by_server(user_id: int, server_id: int) -> List[Subscription]:
@@ -816,33 +992,12 @@ async def update_payment_status(
 
 
 async def get_tariff_by_id(tariff_id: int, use_cache: bool = True) -> Optional[Tariff]:
-    """Получить тариф по ID с кэшированием"""
-    cache_key = CacheKeys.TARIFF_BY_ID.format(id=tariff_id)
-    
-    # Проверяем кэш
-    if use_cache:
-        cached = await CacheService.get(cache_key)
-        if cached:
-            return Tariff(**cached)
-    
+    """Получить тариф по ID"""
     async with async_session() as session:
         result = await session.execute(
             select(Tariff).where(Tariff.id == tariff_id)
         )
-        tariff = result.scalar_one_or_none()
-        
-        # Кэшируем результат на 10 минут
-        if tariff and use_cache:
-            tariff_dict = {
-                'id': tariff.id,
-                'name': tariff.name,
-                'price': tariff.price,
-                'duration_days': tariff.duration_days,
-                'traffic_limit': tariff.traffic_limit,
-            }
-            await CacheService.set(cache_key, tariff_dict, ttl=600)
-        
-        return tariff
+        return result.scalar_one_or_none()
 
 
 def generate_test_key() -> str:
@@ -883,68 +1038,33 @@ async def get_all_locations() -> List[Location]:
 
 
 async def get_active_locations(use_cache: bool = True) -> List[Location]:
-    """Получить только активные локации с кэшированием"""
-    cache_key = CacheKeys.ACTIVE_LOCATIONS
-    
-    # Проверяем кэш
-    if use_cache:
-        cached = await CacheService.get(cache_key)
-        if cached:
-            return [Location(**loc) for loc in cached]
-    
+    """Получить только активные и не скрытые локации"""
+    # Кэширование не используется для объектов ORM - всегда загружаем из БД
+    # Локации меняются редко, но для консистентности всегда загружаем свежие данные
     async with async_session() as session:
         result = await session.execute(
-            select(Location).where(Location.is_active == True).order_by(Location.name)
+            select(Location).where(
+                and_(
+                    Location.is_active == True,
+                    Location.is_hidden == False
+                )
+            ).order_by(Location.name)
         )
-        locations = list(result.scalars().all())
-        
-        # Кэшируем результат на 10 минут
-        if locations and use_cache:
-            locations_dict = [
-                {
-                    'id': loc.id,
-                    'name': loc.name,
-                    'description': loc.description,
-                    'price': loc.price,
-                    'is_active': loc.is_active,
-                    'created_at': loc.created_at.isoformat() if loc.created_at else None,
-                    'updated_at': loc.updated_at.isoformat() if loc.updated_at else None,
-                }
-                for loc in locations
-            ]
-            await CacheService.set(cache_key, locations_dict, ttl=600)
-        
-        return locations
+        return list(result.scalars().all())
 
 
 async def get_location_by_id(location_id: int, use_cache: bool = True) -> Optional[Location]:
-    """Получить локацию по ID с кэшированием"""
-    cache_key = CacheKeys.LOCATION_BY_ID.format(id=location_id)
-    
-    # Проверяем кэш
-    if use_cache:
-        cached = await CacheService.get(cache_key)
-        if cached:
-            return Location(**cached)
-    
+    """Получить локацию по ID"""
     async with async_session() as session:
         result = await session.execute(select(Location).where(Location.id == location_id))
-        location = result.scalar_one_or_none()
-        
-        # Кэшируем результат на 10 минут
-        if location and use_cache:
-            location_dict = {
-                'id': location.id,
-                'name': location.name,
-                'description': location.description,
-                'price': location.price,
-                'is_active': location.is_active,
-                'created_at': location.created_at.isoformat() if location.created_at else None,
-                'updated_at': location.updated_at.isoformat() if location.updated_at else None,
-            }
-            await CacheService.set(cache_key, location_dict, ttl=600)
-        
-        return location
+        return result.scalar_one_or_none()
+
+
+async def get_location_by_name(name: str) -> Optional[Location]:
+    """Получить локацию по названию"""
+    async with async_session() as session:
+        result = await session.execute(select(Location).where(Location.name == name))
+        return result.scalar_one_or_none()
 
 
 async def update_location(location_id: int, **kwargs) -> Optional[Location]:
@@ -1000,24 +1120,8 @@ async def get_servers_by_location(location_id: int) -> List[Server]:
 
 
 async def get_active_servers_by_location(location_id: int, use_cache: bool = True) -> List[Server]:
-    """Получить только активные серверы для локации с загруженными локациями и кэшированием"""
-    cache_key = CacheKeys.SERVERS_BY_LOCATION.format(location_id=location_id)
-    
-    # Проверяем кэш
-    if use_cache:
-        cached = await CacheService.get(cache_key)
-        if cached:
-            servers = []
-            for srv_dict in cached:
-                server = Server(**srv_dict)
-                # Загружаем локацию отдельно
-                if srv_dict.get('location_id'):
-                    location = await get_location_by_id(srv_dict['location_id'], use_cache=True)
-                    if location:
-                        server.location = location
-                servers.append(server)
-            return servers
-    
+    """Получить только активные серверы для локации с загруженными локациями"""
+    # Используем joinedload для оптимизации - один запрос вместо N+1
     async with async_session() as session:
         result = await session.execute(
             select(Server)
@@ -1027,31 +1131,7 @@ async def get_active_servers_by_location(location_id: int, use_cache: bool = Tru
             )
             .order_by(Server.id)
         )
-        servers = list(result.unique().scalars().all())
-        
-        # Кэшируем результат на 10 минут
-        if servers and use_cache:
-            servers_dict = [
-                {
-                    'id': srv.id,
-                    'name': srv.name,
-                    'api_url': srv.api_url,
-                    'api_username': srv.api_username,
-                    'api_password': srv.api_password,
-                    'pbk': srv.pbk,
-                    'location_id': srv.location_id,
-                    'description': srv.description,
-                    'is_active': srv.is_active,
-                    'max_users': srv.max_users,
-                    'current_users': srv.current_users,
-                    'created_at': srv.created_at.isoformat() if srv.created_at else None,
-                    'updated_at': srv.updated_at.isoformat() if srv.updated_at else None,
-                }
-                for srv in servers
-            ]
-            await CacheService.set(cache_key, servers_dict, ttl=600)
-        
-        return servers
+        return list(result.unique().scalars().all())
 
 
 async def count_active_subscriptions_by_server(server_id: int) -> int:
@@ -1140,9 +1220,53 @@ async def update_server_current_users(server_id: int):
         await session.commit()
 
 
+async def get_users_with_active_subscriptions_by_location(location_id: int) -> List[User]:
+    """Получить всех пользователей с активными подписками на сервера в указанной локации
+    
+    Args:
+        location_id: ID локации
+        
+    Returns:
+        Список уникальных пользователей с активными подписками на сервера в локации
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .join(Subscription, User.id == Subscription.user_id)
+            .join(Server, Subscription.server_id == Server.id)
+            .where(
+                and_(
+                    Server.location_id == location_id,
+                    Subscription.status == "active"
+                )
+            )
+            .distinct()
+        )
+        return list(result.scalars().all())
+
+
+async def get_users_with_subscriptions_by_server(server_id: int) -> List[User]:
+    """Получить всех пользователей с подписками на указанном сервере
+    
+    Args:
+        server_id: ID сервера
+        
+    Returns:
+        Список уникальных пользователей с подписками на сервере (любого статуса)
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(User)
+            .join(Subscription, User.id == Subscription.user_id)
+            .where(Subscription.server_id == server_id)
+            .distinct()
+        )
+        return list(result.scalars().all())
+
+
 # ==================== ПРОМОКОДЫ ====================
 
-async def create_promo_code(code: str, discount_percent: float, max_uses: Optional[int] = None) -> PromoCode:
+async def create_promo_code(code: str, discount_percent: float, max_uses: Optional[int] = None, allow_reuse_by_same_user: bool = False) -> PromoCode:
     """Создать промокод (max_uses=None для безлимитного промокода)"""
     async with async_session() as session:
         promo_code = PromoCode(
@@ -1150,6 +1274,7 @@ async def create_promo_code(code: str, discount_percent: float, max_uses: Option
             discount_percent=discount_percent,
             max_uses=max_uses,  # None = безлимитный
             current_uses=0,
+            allow_reuse_by_same_user=allow_reuse_by_same_user,
             is_active=True
         )
         session.add(promo_code)
@@ -1232,19 +1357,20 @@ async def can_use_promo_code(promo_code: PromoCode, user_id: int) -> tuple[bool,
     if promo_code.max_uses is not None and promo_code.current_uses >= promo_code.max_uses:
         return False, "Промокод исчерпан"
     
-    # Проверяем, использовал ли пользователь уже этот промокод
-    async with async_session() as session:
-        result = await session.execute(
-            select(PromoCodeUsage).where(
-                and_(
-                    PromoCodeUsage.promo_code_id == promo_code.id,
-                    PromoCodeUsage.user_id == user_id
+    # Проверяем, использовал ли пользователь уже этот промокод (только если не разрешено повторное использование)
+    if not promo_code.allow_reuse_by_same_user:
+        async with async_session() as session:
+            result = await session.execute(
+                select(PromoCodeUsage).where(
+                    and_(
+                        PromoCodeUsage.promo_code_id == promo_code.id,
+                        PromoCodeUsage.user_id == user_id
+                    )
                 )
             )
-        )
-        usage = result.scalar_one_or_none()
-        if usage:
-            return False, "Вы уже использовали этот промокод"
+            usage = result.scalar_one_or_none()
+            if usage:
+                return False, "Вы уже использовали этот промокод"
     
     return True, ""
 
@@ -1293,12 +1419,23 @@ async def has_user_used_promo_code(user_id: int, promo_code_id: int) -> bool:
 
 # ==================== ПОДДЕРЖКА ====================
 
-async def create_support_ticket(user_id: int, message: str) -> SupportTicket:
-    """Создать новый тикет поддержки"""
+# Константы для ограничений
+MAX_MESSAGE_LENGTH = 4000  # Максимальная длина сообщения (символов)
+MAX_PHOTO_SIZE_MB = 10  # Максимальный размер изображения (МБ)
+
+async def create_support_ticket(user_id: int, message: str, photo_file_id: str = None) -> SupportTicket:
+    """Создать новый тикет поддержки
+    
+    Args:
+        user_id: ID пользователя
+        message: Текст сообщения
+        photo_file_id: file_id изображения в Telegram (опционально)
+    """
     async with async_session() as session:
         ticket = SupportTicket(
             user_id=user_id,
             message=message,
+            photo_file_id=photo_file_id,
             status="open"
         )
         session.add(ticket)
@@ -1402,4 +1539,275 @@ async def delete_support_ticket(ticket_id: int) -> bool:
         await session.delete(ticket)
         await session.commit()
         return True
+
+
+# ========== Функции для работы с платформами и туториалами ==========
+
+async def get_all_platforms() -> List[Platform]:
+    """Получить все платформы"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform)
+            .order_by(Platform.order, Platform.id)
+        )
+        return list(result.scalars().all())
+
+
+async def get_active_platforms() -> List[Platform]:
+    """Получить все активные платформы"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform)
+            .where(Platform.is_active == True)
+            .order_by(Platform.order, Platform.id)
+        )
+        return list(result.scalars().all())
+
+
+async def get_platform_by_id(platform_id: int) -> Optional[Platform]:
+    """Получить платформу по ID"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform).where(Platform.id == platform_id)
+        )
+        return result.scalar_one_or_none()
+
+
+async def get_platform_by_name(name: str) -> Optional[Platform]:
+    """Получить платформу по имени"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform).where(Platform.name == name)
+        )
+        return result.scalar_one_or_none()
+
+
+async def create_platform(name: str, display_name: str, description: str = None, is_active: bool = True, order: int = 0) -> Platform:
+    """Создать новую платформу"""
+    async with async_session() as session:
+        platform = Platform(
+            name=name,
+            display_name=display_name,
+            description=description,
+            is_active=is_active,
+            order=order
+        )
+        session.add(platform)
+        await session.commit()
+        await session.refresh(platform)
+        return platform
+
+
+async def update_platform(platform_id: int, **kwargs) -> Optional[Platform]:
+    """Обновить данные платформы"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform).where(Platform.id == platform_id)
+        )
+        platform = result.scalar_one_or_none()
+        if not platform:
+            return None
+        
+        for key, value in kwargs.items():
+            if hasattr(platform, key) and value is not None:
+                setattr(platform, key, value)
+        
+        platform.updated_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(platform)
+        return platform
+
+
+async def delete_platform(platform_id: int) -> bool:
+    """Удалить платформу (каскадно удалит все туториалы и файлы)"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Platform).where(Platform.id == platform_id)
+        )
+        platform = result.scalar_one_or_none()
+        if not platform:
+            return False
+        
+        await session.delete(platform)
+        await session.commit()
+        return True
+
+
+async def get_tutorials_by_platform(platform_id: int, is_basic: bool = None, is_active: bool = True) -> List[Tutorial]:
+    """Получить туториалы для платформы"""
+    async with async_session() as session:
+        query = select(Tutorial).where(Tutorial.platform_id == platform_id)
+        
+        if is_basic is not None:
+            query = query.where(Tutorial.is_basic == is_basic)
+        
+        if is_active is not None:
+            query = query.where(Tutorial.is_active == is_active)
+        
+        query = query.order_by(Tutorial.order, Tutorial.id)
+        
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
+async def get_tutorial_by_id(tutorial_id: int) -> Optional[Tutorial]:
+    """Получить туториал по ID с загруженными файлами"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Tutorial)
+            .options(selectinload(Tutorial.files))
+            .where(Tutorial.id == tutorial_id)
+        )
+        return result.unique().scalar_one_or_none()
+
+
+async def create_tutorial(
+    platform_id: int,
+    title: str,
+    text: str = None,
+    video_file_id: str = None,
+    video_note_id: str = None,
+    is_basic: bool = True,
+    order: int = 0,
+    is_active: bool = True
+) -> Tutorial:
+    """Создать новый туториал"""
+    async with async_session() as session:
+        tutorial = Tutorial(
+            platform_id=platform_id,
+            title=title,
+            text=text,
+            video_file_id=video_file_id,
+            video_note_id=video_note_id,
+            is_basic=is_basic,
+            order=order,
+            is_active=is_active
+        )
+        session.add(tutorial)
+        await session.commit()
+        await session.refresh(tutorial)
+        return tutorial
+
+
+async def update_tutorial(tutorial_id: int, **kwargs) -> Optional[Tutorial]:
+    """Обновить данные туториала"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Tutorial).where(Tutorial.id == tutorial_id)
+        )
+        tutorial = result.scalar_one_or_none()
+        if not tutorial:
+            return None
+        
+        for key, value in kwargs.items():
+            if hasattr(tutorial, key):
+                # Разрешаем установку None для очистки полей
+                setattr(tutorial, key, value)
+        
+        tutorial.updated_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(tutorial)
+        return tutorial
+
+
+async def delete_tutorial(tutorial_id: int) -> bool:
+    """Удалить туториал (каскадно удалит все файлы)"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Tutorial).where(Tutorial.id == tutorial_id)
+        )
+        tutorial = result.scalar_one_or_none()
+        if not tutorial:
+            return False
+        
+        await session.delete(tutorial)
+        await session.commit()
+        return True
+
+
+async def get_tutorial_files(tutorial_id: int) -> List[TutorialFile]:
+    """Получить все файлы туториала"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(TutorialFile)
+            .where(TutorialFile.tutorial_id == tutorial_id)
+            .order_by(TutorialFile.order, TutorialFile.id)
+        )
+        return list(result.scalars().all())
+
+
+async def add_tutorial_file(
+    tutorial_id: int,
+    file_id: str,
+    file_name: str = None,
+    file_type: str = None,
+    description: str = None,
+    order: int = 0
+) -> TutorialFile:
+    """Добавить файл к туториалу"""
+    async with async_session() as session:
+        tutorial_file = TutorialFile(
+            tutorial_id=tutorial_id,
+            file_id=file_id,
+            file_name=file_name,
+            file_type=file_type,
+            description=description,
+            order=order
+        )
+        session.add(tutorial_file)
+        await session.commit()
+        await session.refresh(tutorial_file)
+        return tutorial_file
+
+
+async def delete_tutorial_file(file_id: int) -> bool:
+    """Удалить файл туториала"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(TutorialFile).where(TutorialFile.id == file_id)
+        )
+        tutorial_file = result.scalar_one_or_none()
+        if not tutorial_file:
+            return False
+        
+        await session.delete(tutorial_file)
+        await session.commit()
+        return True
+
+
+async def get_basic_tutorial_for_platform(platform_id: int) -> Optional[Tutorial]:
+    """Получить базовый туториал для платформы"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Tutorial)
+            .options(selectinload(Tutorial.files))
+            .where(
+                and_(
+                    Tutorial.platform_id == platform_id,
+                    Tutorial.is_basic == True,
+                    Tutorial.is_active == True
+                )
+            )
+            .order_by(Tutorial.order, Tutorial.id)
+            .limit(1)
+        )
+        return result.unique().scalar_one_or_none()
+
+
+async def get_additional_tutorials_for_platform(platform_id: int) -> List[Tutorial]:
+    """Получить дополнительные туториалы для платформы"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Tutorial)
+            .options(selectinload(Tutorial.files))
+            .where(
+                and_(
+                    Tutorial.platform_id == platform_id,
+                    Tutorial.is_basic == False,
+                    Tutorial.is_active == True
+                )
+            )
+            .order_by(Tutorial.order, Tutorial.id)
+        )
+        return list(result.unique().scalars().all())
 

@@ -2,8 +2,10 @@
 Обработчики для оплаты через YooKassa
 """
 from aiogram import F, Router, types
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from utils.keyboards.main_kb import main_menu, instructions_platform_keyboard
+from utils.keyboards.main_kb import main_menu
+from utils.logger import logger
 from utils.db import (
     get_user_by_tg_id,
     get_server_by_id,
@@ -21,7 +23,8 @@ from utils.db import (
     can_use_promo_code,
     use_promo_code,
     get_subscription_identifier,
-    utc_to_user_timezone
+    utc_to_user_timezone,
+    update_user_email
 )
 from aiogram.fsm.state import State, StatesGroup
 from core.config import config
@@ -37,6 +40,9 @@ def get_subscription_duration(tariff_duration_days: int) -> tuple[int, timedelta
     """
     Получить длительность подписки.
     
+    Args:
+        tariff_duration_days: Длительность тарифа в днях
+    
     Returns:
         tuple: (days_for_api, timedelta_for_expire_date)
         - days_for_api: количество дней для передачи в API 3x-ui (0 = без ограничения)
@@ -48,14 +54,37 @@ def get_subscription_duration(tariff_duration_days: int) -> tuple[int, timedelta
         timedelta_for_expire = timedelta(minutes=1)
         return days_for_api, timedelta_for_expire
     else:
-        # Обычный режим: 30 дней в БД, без ограничения в API
+        # Обычный режим: используем длительность из тарифа
         days_for_api = 0  # 0 = без ограничения по времени в API
-        timedelta_for_expire = timedelta(days=30)
+        # Используем реальную длительность тарифа, а не хардкод 30 дней
+        timedelta_for_expire = timedelta(days=tariff_duration_days)
         return days_for_api, timedelta_for_expire
+
+
+def get_test_price(price: float) -> float:
+    """
+    Получить цену с учетом тестового режима.
+    В TEST_MODE всегда возвращает 1 рубль.
+    
+    Args:
+        price: Исходная цена
+        
+    Returns:
+        float: Цена (1.0 в TEST_MODE, иначе исходная цена)
+    """
+    # Проверяем TEST_MODE напрямую из конфига
+    if config.TEST_MODE:
+        return 1.0
+    # В обычном режиме возвращаем реальную цену
+    return price
 
 
 class PromoCodeStates(StatesGroup):
     waiting_promo_code = State()
+
+
+class EmailStates(StatesGroup):
+    waiting_email = State()
 
 
 @router.callback_query(F.data.startswith("buy_location_"))
@@ -104,17 +133,18 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
     
     is_new_user = False
     discount_percent = 0.0
-    final_price = location.price
+    final_price = get_test_price(location.price)
     
     has_purchase = await has_user_made_purchase(user.id)
     if not has_purchase and not user.used_first_purchase_discount:
         is_new_user = True
         discount_percent = config.FIRST_PURCHASE_DISCOUNT_PERCENT
-        final_price = location.price * (1 - discount_percent / 100)
+        # В TEST_MODE цена всегда 1, независимо от скидки
+        final_price = get_test_price(location.price * (1 - discount_percent / 100))
     
     # Сохраняем информацию о скидке в state
     await state.update_data(
-        original_price=location.price,
+        original_price=get_test_price(location.price),
         final_price=final_price,
         discount_applied=is_new_user,
         discount_percent=discount_percent if is_new_user else 0.0,
@@ -129,7 +159,7 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
         text += f"📍 <b>Локация:</b> {location.name}\n"
         if location.description:
             text += f"📋 {location.description}\n\n"
-        text += f"💎 <b>Стоимость:</b> {location.price:.0f} ₽\n\n"
+        text += f"💎 <b>Стоимость:</b> {get_test_price(location.price):.0f} ₽\n\n"
         text += "✨ После оплаты вы получите:\n"
         text += "   • Персональный ключ\n"
         text += "   • Высокую скорость соединения\n"
@@ -145,6 +175,23 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
         await state.update_data(payment_message_id=new_message.message_id)
         return
     
+    # Для новых пользователей проверяем email перед созданием платежа
+    # Проверяем наличие email в БД
+    if not user.email or not validate_email(user.email):
+        # Запрашиваем email
+        action_data = {
+            "location_id": location_id,
+            "final_price": final_price,
+            "original_price": get_test_price(location.price),
+            "discount_applied": is_new_user,
+            "discount_percent": discount_percent if is_new_user else 0.0,
+            "promo_code_id": None,
+            "promo_code_discount": 0.0,
+            "available_server_id": available_server.id
+        }
+        await check_and_request_email(user, callback, state, action_data)
+        return
+    
     # Для новых пользователей сразу создаем платеж
     try:
         # Формируем описание платежа
@@ -156,10 +203,20 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
         
         # Создаем платеж в YooKassa
         try:
+            # Используем email из БД
+            customer_email = user.email
+            customer_phone = getattr(callback.from_user, 'phone', None)
+            
+            # Формируем название товара для чека (обрезаем до 128 символов)
+            receipt_item_description = description[:128] if len(description) > 128 else description
+            
             payment_data = await yookassa_service.create_payment(
                 amount=final_price,
                 description=description,
-                user_id=str(callback.from_user.id)
+                user_id=str(callback.from_user.id),
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+                receipt_item_description=receipt_item_description
             )
         except Exception as payment_error:
             # Обработка ошибок при создании платежа
@@ -168,7 +225,19 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
             # Формируем понятное сообщение для пользователя
             user_error_message = "❌ <b>Ошибка при создании платежа</b>\n\n"
             
-            if "авторизации" in error_message.lower() or "authentication" in error_message.lower():
+            if ("ssl" in error_message.lower() or 
+                "подключения" in error_message.lower() or 
+                "сетевым" in error_message.lower() or
+                "httpsconnectionpool" in error_message.lower() or
+                "max retries exceeded" in error_message.lower() or
+                "сетевым подключением" in error_message.lower() or
+                "платежной системе" in error_message.lower()):
+                user_error_message += "Произошла ошибка подключения к платежной системе.\n\n"
+                user_error_message += "Возможные причины:\n"
+                user_error_message += "• Проблемы с интернет-соединением\n"
+                user_error_message += "• Временные проблемы на стороне платежной системы\n\n"
+                user_error_message += "Попробуйте создать платеж еще раз через несколько секунд."
+            elif "авторизации" in error_message.lower() or "authentication" in error_message.lower():
                 user_error_message += "Произошла ошибка авторизации в платежной системе.\n"
                 user_error_message += "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
             elif "некорректные данные" in error_message.lower() or "invalid" in error_message.lower():
@@ -217,7 +286,7 @@ async def select_location_for_payment(callback: types.CallbackQuery, state: FSMC
                 text += "⚠️ <b>Тестовый режим</b>\n\n"
             text += f"📍 <b>Локация:</b> {location.name}\n"
             if is_new_user:
-                text += f"💰 <b>Цена:</b> <s>{location.price:.0f} ₽</s>\n"
+                text += f"💰 <b>Цена:</b> <s>{get_test_price(location.price):.0f} ₽</s>\n"
                 text += f"💎 <b>Ваша цена:</b> <b>{final_price:.0f} ₽</b>\n"
                 text += f"🎁 <b>Скидка {discount_percent:.0f}% на первую покупку!</b>\n"
             
@@ -344,9 +413,13 @@ async def process_promo_code(message: types.Message, state: FSMContext):
         return
     
     # Вычисляем цену со скидкой промокода
-    original_price = state_data.get("original_price", location.price)
+    # Всегда используем реальную цену локации, а не сохраненное значение из state
+    base_price = location.price
     promo_discount_percent = promo_code.discount_percent
-    final_price = original_price * (1 - promo_discount_percent / 100)
+    # Пересчитываем цену на основе реальной цены и текущего TEST_MODE
+    calculated_price = base_price * (1 - promo_discount_percent / 100)
+    final_price = get_test_price(calculated_price)
+    original_price = get_test_price(base_price)
     
     # Сохраняем информацию о промокоде в state
     await state.update_data(
@@ -374,6 +447,21 @@ async def process_promo_code(message: types.Message, state: FSMContext):
         await state.set_state(None)
         return
     
+    # Проверяем наличие email в БД перед созданием платежа
+    if not user.email or not validate_email(user.email):
+        # Запрашиваем email
+        action_data = {
+            "location_id": location_id,
+            "final_price": final_price,
+            "original_price": original_price,
+            "discount_applied": True,
+            "discount_percent": promo_discount_percent,
+            "promo_code_id": promo_code.id,
+            "promo_code_discount": promo_discount_percent
+        }
+        await check_and_request_email(user, message, state, action_data)
+        return
+    
     # Сразу создаем платеж после применения промокода
     try:
         # Формируем описание платежа
@@ -384,10 +472,20 @@ async def process_promo_code(message: types.Message, state: FSMContext):
         
         # Создаем платеж в YooKassa
         try:
+            # Используем email из БД
+            customer_email = user.email
+            customer_phone = getattr(message.from_user, 'phone', None)
+            
+            # Формируем название товара для чека (обрезаем до 128 символов)
+            receipt_item_description = description[:128] if len(description) > 128 else description
+            
             payment_data = await yookassa_service.create_payment(
                 amount=final_price,
                 description=description,
-                user_id=str(message.from_user.id)
+                user_id=str(message.from_user.id),
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+                receipt_item_description=receipt_item_description
             )
         except Exception as payment_error:
             # Обработка ошибок при создании платежа
@@ -396,7 +494,19 @@ async def process_promo_code(message: types.Message, state: FSMContext):
             # Формируем понятное сообщение для пользователя
             user_error_message = "❌ <b>Ошибка при создании платежа</b>\n\n"
             
-            if "авторизации" in error_message.lower() or "authentication" in error_message.lower():
+            if ("ssl" in error_message.lower() or 
+                "подключения" in error_message.lower() or 
+                "сетевым" in error_message.lower() or
+                "httpsconnectionpool" in error_message.lower() or
+                "max retries exceeded" in error_message.lower() or
+                "сетевым подключением" in error_message.lower() or
+                "платежной системе" in error_message.lower()):
+                user_error_message += "Произошла ошибка подключения к платежной системе.\n\n"
+                user_error_message += "Возможные причины:\n"
+                user_error_message += "• Проблемы с интернет-соединением\n"
+                user_error_message += "• Временные проблемы на стороне платежной системы\n\n"
+                user_error_message += "Попробуйте создать платеж еще раз через несколько секунд."
+            elif "авторизации" in error_message.lower() or "authentication" in error_message.lower():
                 user_error_message += "Произошла ошибка авторизации в платежной системе.\n"
                 user_error_message += "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
             elif "некорректные данные" in error_message.lower() or "invalid" in error_message.lower():
@@ -484,6 +594,212 @@ def cancel_keyboard():
     return kb.as_markup()
 
 
+def validate_email(email: str) -> bool:
+    """Валидация email адреса"""
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email.strip()))
+
+
+async def continue_payment_after_email(
+    message_or_callback, state: FSMContext, location_id: int, final_price: float,
+    original_price: float, discount_applied: bool, discount_percent: float,
+    promo_code_id: int, promo_code_discount: float, user
+):
+    """Продолжает создание платежа после ввода email"""
+    from services.payment_checker import start_payment_check
+    
+    # Получаем дополнительные данные из state (для продления подписки)
+    state_data = await state.get_data()
+    is_renewal = state_data.get("is_renewal", False)
+    subscription_id = state_data.get("subscription_id")
+    server_id = state_data.get("server_id")
+    
+    location = await get_location_by_id(location_id)
+    if not location:
+        if isinstance(message_or_callback, types.CallbackQuery):
+            await message_or_callback.message.answer("❌ Локация не найдена", reply_markup=main_menu())
+        else:
+            await message_or_callback.answer("❌ Локация не найдена", reply_markup=main_menu())
+        await state.clear()
+        return
+    
+    # Для продления используем существующий сервер, для новой покупки - выбираем доступный
+    if is_renewal and server_id:
+        available_server = await get_server_by_id(server_id)
+    else:
+        available_server = await select_available_server_for_location(location_id)
+    
+    if not available_server:
+        if isinstance(message_or_callback, types.CallbackQuery):
+            await message_or_callback.message.answer(
+                "❌ К сожалению, все серверы в этой локации переполнены.",
+                reply_markup=main_menu()
+            )
+        else:
+            await message_or_callback.answer(
+                "❌ К сожалению, все серверы в этой локации переполнены.",
+                reply_markup=main_menu()
+            )
+        await state.clear()
+        return
+    
+    try:
+        # Пересчитываем цену на основе текущего TEST_MODE, а не используем сохраненное значение
+        # Получаем реальную цену локации и пересчитываем с учетом скидок
+        base_price = location.price
+        if discount_applied:
+            if promo_code_id:
+                calculated_price = base_price * (1 - discount_percent / 100)
+            else:
+                calculated_price = base_price * (1 - discount_percent / 100)
+        else:
+            calculated_price = base_price
+        
+        # Применяем TEST_MODE к пересчитанной цене
+        final_price = get_test_price(calculated_price)
+        
+        # Формируем описание платежа
+        description = f"Подписка на сервис для безопасного и стабильного интернет-доступа: {location.name}"
+        if config.TEST_MODE:
+            description += " (тестовый режим)"
+        if discount_applied:
+            if promo_code_id:
+                description += f" (промокод: {discount_percent:.0f}%)"
+            else:
+                description += f" (скидка {discount_percent:.0f}%)"
+        
+        # Используем email из БД
+        customer_email = user.email
+        customer_phone = None
+        if isinstance(message_or_callback, types.CallbackQuery):
+            customer_phone = getattr(message_or_callback.from_user, 'phone', None)
+        else:
+            customer_phone = getattr(message_or_callback.from_user, 'phone', None)
+        
+        # Формируем название товара для чека
+        receipt_item_description = description[:128] if len(description) > 128 else description
+        
+        payment_data = await yookassa_service.create_payment(
+            amount=final_price,
+            description=description,
+            user_id=str(user.tg_id),
+            customer_email=customer_email,
+            customer_phone=customer_phone,
+            receipt_item_description=receipt_item_description
+        )
+        
+        # Сохраняем платеж в БД
+        payment = await create_payment(
+            tg_id=str(user.tg_id),
+            amount=final_price,
+            server_id=available_server.id,
+            yookassa_payment_id=payment_data["id"],
+            currency="RUB"
+        )
+        
+        # Сохраняем payment_id в state
+        await state.update_data(
+            payment_id=payment.id,
+            yookassa_payment_id=payment_data["id"]
+        )
+        
+        # Перекидываем пользователя на страницу оплаты
+        text = "💳 <b>Переход к оплате</b>\n\n"
+        if config.TEST_MODE:
+            text += "⚠️ <b>Тестовый режим</b>\n\n"
+        text += f"📍 <b>Локация:</b> {location.name}\n"
+        if discount_applied:
+            text += f"💰 <b>Цена:</b> <s>{original_price:.0f} ₽</s>\n"
+            text += f"💎 <b>Ваша цена:</b> <b>{final_price:.0f} ₽</b>\n"
+            if promo_code_id:
+                text += f"🎟️ <b>Скидка по промокоду: {discount_percent:.0f}%</b>\n"
+            else:
+                text += f"🎁 <b>Скидка {discount_percent:.0f}% на первую покупку!</b>\n"
+        
+        kb = InlineKeyboardBuilder()
+        kb.button(text=f"💳 Оплатить {final_price:.0f} ₽", url=payment_data["confirmation_url"])
+        kb.button(text="❌ Отмена", callback_data="cancel_payment")
+        kb.adjust(1)
+        
+        if isinstance(message_or_callback, types.CallbackQuery):
+            try:
+                await message_or_callback.answer(url=payment_data["confirmation_url"])
+            except:
+                new_message = await message_or_callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+                await state.update_data(payment_message_id=new_message.message_id)
+        else:
+            new_message = await message_or_callback.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+            await state.update_data(payment_message_id=new_message.message_id)
+        
+        # Запускаем проверку статуса платежа
+        message_id = None
+        if isinstance(message_or_callback, types.CallbackQuery):
+            message_id = message_or_callback.message.message_id
+        else:
+            message_id = new_message.message_id
+        
+        start_payment_check(
+            yookassa_payment_id=payment_data["id"],
+            payment_id=payment.id,
+            user_id=int(user.tg_id),
+            server_id=available_server.id,
+            message_id=message_id,
+            subscription_id=subscription_id if is_renewal else None,
+            is_renewal=is_renewal
+        )
+        
+    except Exception as e:
+        error_message = str(e)
+        user_error_message = "❌ <b>Ошибка при создании платежа</b>\n\n"
+        user_error_message += f"Произошла ошибка: {error_message}\n\n"
+        user_error_message += "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
+        
+        if isinstance(message_or_callback, types.CallbackQuery):
+            await message_or_callback.message.answer(user_error_message, reply_markup=main_menu(), parse_mode="HTML")
+        else:
+            await message_or_callback.answer(user_error_message, reply_markup=main_menu(), parse_mode="HTML")
+        await state.clear()
+
+
+async def check_and_request_email(user, message_or_callback, state: FSMContext, action_data: dict) -> bool:
+    """
+    Проверяет наличие email у пользователя. Если email отсутствует, запрашивает его.
+    
+    Args:
+        user: Объект User из БД
+        message_or_callback: Message или CallbackQuery объект
+        state: FSMContext
+        action_data: Словарь с данными для сохранения в state (location_id, final_price и т.д.)
+    
+    Returns:
+        True если email есть или был запрошен, False если пользователь отменил
+    """
+    # Проверяем наличие email в БД
+    if user.email and validate_email(user.email):
+        return True
+    
+    # Сохраняем данные действия в state для продолжения после ввода email
+    await state.update_data(**action_data, waiting_for_email=True)
+    
+    # Запрашиваем email
+    text = "📧 <b>Для отправки чека требуется ваш email</b>\n\n"
+    text += "Пожалуйста, введите ваш email адрес:\n\n"
+    text += "Пример: example@mail.ru"
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="❌ Отмена", callback_data="cancel_email_input")
+    
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        await message_or_callback.answer()
+    else:
+        await message_or_callback.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    
+    await state.set_state(EmailStates.waiting_email)
+    return False
+
+
 @router.callback_query(F.data.startswith("pay_location_"))
 async def create_payment_handler(callback: types.CallbackQuery, state: FSMContext):
     """Создание платежа через YooKassa - сразу перекидывает на страницу оплаты"""
@@ -513,10 +829,39 @@ async def create_payment_handler(callback: types.CallbackQuery, state: FSMContex
     try:
         # Получаем данные о скидке из state
         state_data = await state.get_data()
-        final_price = state_data.get("final_price", location.price)
+        # Пересчитываем цену на основе текущего TEST_MODE, а не используем сохраненное значение
+        # Всегда используем реальную цену локации как базовую
+        base_price = location.price
+        
         discount_applied = state_data.get("discount_applied", False)
         discount_percent = state_data.get("discount_percent", 0.0)
         promo_code_id = state_data.get("promo_code_id")
+        promo_code_discount = state_data.get("promo_code_discount", 0.0)
+        
+        # Пересчитываем финальную цену на основе реальной цены и текущего TEST_MODE
+        if discount_applied:
+            calculated_price = base_price * (1 - discount_percent / 100)
+        else:
+            calculated_price = base_price
+        
+        # Применяем TEST_MODE к пересчитанной цене
+        final_price = get_test_price(calculated_price)
+        original_price = get_test_price(base_price)
+        
+        # Проверяем наличие email в БД
+        if not user.email or not validate_email(user.email):
+            # Запрашиваем email
+            action_data = {
+                "location_id": location_id,
+                "final_price": final_price,
+                "original_price": original_price,
+                "discount_applied": discount_applied,
+                "discount_percent": discount_percent,
+                "promo_code_id": promo_code_id,
+                "promo_code_discount": promo_code_discount
+            }
+            await check_and_request_email(user, callback, state, action_data)
+            return
         
         # Удаляем предыдущее сообщение с информацией о локации
         try:
@@ -539,10 +884,20 @@ async def create_payment_handler(callback: types.CallbackQuery, state: FSMContex
         
         # Создаем платеж в YooKassa
         try:
+            # Используем email из БД
+            customer_email = user.email
+            customer_phone = getattr(callback.from_user, 'phone', None)
+            
+            # Формируем название товара для чека (обрезаем до 128 символов)
+            receipt_item_description = description[:128] if len(description) > 128 else description
+            
             payment_data = await yookassa_service.create_payment(
                 amount=final_price,
                 description=description,
-                user_id=str(callback.from_user.id)
+                user_id=str(callback.from_user.id),
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+                receipt_item_description=receipt_item_description
             )
         except Exception as payment_error:
             # Обработка ошибок при создании платежа
@@ -551,7 +906,19 @@ async def create_payment_handler(callback: types.CallbackQuery, state: FSMContex
             # Формируем понятное сообщение для пользователя
             user_error_message = "❌ <b>Ошибка при создании платежа</b>\n\n"
             
-            if "авторизации" in error_message.lower() or "authentication" in error_message.lower():
+            if ("ssl" in error_message.lower() or 
+                "подключения" in error_message.lower() or 
+                "сетевым" in error_message.lower() or
+                "httpsconnectionpool" in error_message.lower() or
+                "max retries exceeded" in error_message.lower() or
+                "сетевым подключением" in error_message.lower() or
+                "платежной системе" in error_message.lower()):
+                user_error_message += "Произошла ошибка подключения к платежной системе.\n\n"
+                user_error_message += "Возможные причины:\n"
+                user_error_message += "• Проблемы с интернет-соединением\n"
+                user_error_message += "• Временные проблемы на стороне платежной системы\n\n"
+                user_error_message += "Попробуйте создать платеж еще раз через несколько секунд."
+            elif "авторизации" in error_message.lower() or "authentication" in error_message.lower():
                 user_error_message += "Произошла ошибка авторизации в платежной системе.\n"
                 user_error_message += "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
             elif "некорректные данные" in error_message.lower() or "invalid" in error_message.lower():
@@ -658,12 +1025,12 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
     payment = await update_payment_status(payment_id, "paid")
     
     if not payment:
-        print(f"Ошибка: платеж {payment_id} не найден или не удалось обновить статус")
+        logger.error(f"Payment {payment_id} not found or failed to update status")
         return
     
     # Дополнительная проверка: убеждаемся, что статус действительно "paid"
     if payment.status != "paid":
-        print(f"Ошибка: статус платежа {payment_id} не был установлен как 'paid' (текущий статус: {payment.status})")
+        logger.error(f"Payment {payment_id} status not set to 'paid' (current: {payment.status})")
         return
     
     user = await get_user_by_tg_id(str(user_id))
@@ -680,11 +1047,11 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
             from utils.db import update_user
             await update_user(user.id, username=chat.username)
             user.username = chat.username
-            print(f"📝 Обновлен username пользователя: {chat.username}")
+            logger.debug(f"User username updated: {chat.username}")
         # Получаем language_code из чата для определения часового пояса
         language_code = getattr(chat, 'language_code', None)
     except Exception as e:
-        print(f"⚠️ Не удалось обновить username пользователя: {e}")
+        logger.warning(f"Failed to update user username: {e}")
     
     # Получаем информацию о сервере
     server = await get_server_by_id(server_id)
@@ -727,36 +1094,172 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
             else:
                 new_expire_date = current_expire_date + duration_timedelta
             
-            await update_subscription(
-                subscription_id=subscription_id,
-                status="active",
-                expire_date=new_expire_date,  # Срок действия в БД (1 минута в тесте, 30 дней в обычном режиме)
-                traffic_limit=tariff.traffic_limit,
-                notification_3_days_sent=False,  # Сбрасываем флаги уведомлений при продлении
-                notification_1_day_sent=False
-            )
+            # КРИТИЧЕСКИЙ БЛОК: Продление подписки
+            # Если здесь произойдет ошибка после успешной оплаты, нужно вернуть средства
+            try:
+                await update_subscription(
+                    subscription_id=subscription_id,
+                    status="active",
+                    expire_date=new_expire_date,  # Срок действия в БД (1 минута в тесте, 30 дней в обычном режиме)
+                    traffic_limit=tariff.traffic_limit,
+                    notification_3_days_sent=False,  # Сбрасываем флаги уведомлений при продлении
+                    notification_1_day_sent=False
+                )
+            except Exception as renewal_error:
+                # КРИТИЧЕСКАЯ ОШИБКА: Платеж прошел, но подписка не продлена
+                error_msg = f"Ошибка при продлении подписки после успешной оплаты: {str(renewal_error)}"
+                logger.error(f"{error_msg}")
+                import traceback
+                logger.error(traceback.format_exc())
+                
+                # Вместо немедленного возврата средств создаем запись для повторной попытки
+                try:
+                    from services.subscription_retry import create_failed_attempt
+                    
+                    # Определяем тип ошибки
+                    error_type = "database_error"
+                    if "api" in error_msg.lower() or "3x-ui" in error_msg.lower() or "x3ui" in error_msg.lower():
+                        error_type = "api_error"
+                    elif "database" in error_msg.lower() or "sql" in error_msg.lower():
+                        error_type = "database_error"
+                    else:
+                        error_type = "unknown_error"
+                    
+                    # Создаем запись о неудачной попытке
+                    failed_attempt = await create_failed_attempt(
+                        payment_id=payment_id,
+                        user_id=user.id,
+                        server_id=server_id,
+                        error_message=error_msg,
+                        error_type=error_type,
+                        subscription_id=subscription_id,
+                        is_renewal=True
+                    )
+                    
+                    logger.info(
+                        f"📝 Создана запись о неудачной попытке продления подписки: "
+                        f"attempt_id={failed_attempt.id}, будет повторная попытка через 5 минут"
+                    )
+                    
+                    # Уведомляем пользователя
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                f"⚠️ <b>Техническая ошибка при продлении подписки</b>\n\n"
+                                f"К сожалению, произошла техническая ошибка при продлении вашей подписки после успешной оплаты.\n\n"
+                                f"<b>Не беспокойтесь:</b>\n"
+                                f"• Платеж успешно обработан\n"
+                                f"• Мы автоматически повторим попытку продления подписки\n"
+                                f"• Вы получите уведомление, как только подписка будет продлена\n\n"
+                                f"<b>Детали:</b>\n"
+                                f"• Платеж: {payment.amount:.2f} ₽\n"
+                                f"• ID платежа: {payment_id}\n"
+                                f"• ID подписки: {subscription_id}\n\n"
+                                f"Если подписка не будет продлена в течение 2 часов, "
+                                f"средства будут автоматически возвращены на ваш счет."
+                            ),
+                            reply_markup=main_menu(),
+                            parse_mode="HTML"
+                        )
+                    except Exception as notify_error:
+                        logger.error(f"Failed to send notification to user: {notify_error}")
+                    
+                except Exception as retry_error:
+                    # Если не удалось создать запись для повторной попытки,
+                    # возвращаемся к старому поведению - пытаемся вернуть средства
+                    logger.error(f"❌ Ошибка при создании записи о неудачной попытке: {retry_error}")
+                    logger.error(traceback.format_exc())
+                    
+                    # Получаем yookassa_payment_id для возврата средств
+                    yookassa_payment_id = payment.yookassa_payment_id if payment else None
+                    
+                    # Пытаемся вернуть средства пользователю
+                    refund_success = False
+                    refund_info = None
+                    if yookassa_payment_id:
+                        try:
+                            refund_info = yookassa_service.refund_payment(
+                                payment_id=yookassa_payment_id,
+                                description=f"Возврат средств из-за ошибки продления подписки. Payment ID: {payment_id}, Subscription ID: {subscription_id}"
+                            )
+                            if refund_info:
+                                refund_success = True
+                                logger.info(f"Refund completed: refund_id={refund_info.get('id')}, amount={refund_info.get('amount')}")
+                            else:
+                                logger.warning(f"Failed to refund payment {yookassa_payment_id}")
+                        except Exception as refund_error:
+                            logger.error(f"Refund error: {refund_error}")
+                            logger.error(traceback.format_exc())
+                    
+                    # Уведомляем пользователя
+                    try:
+                        refund_message = ""
+                        if refund_success:
+                            refund_message = "\n\n✅ <b>Средства будут возвращены на ваш счет в течение нескольких рабочих дней.</b>"
+                        elif yookassa_payment_id:
+                            refund_message = "\n\n⚠️ <b>Мы обработаем возврат средств вручную. Пожалуйста, свяжитесь с поддержкой.</b>"
+                        
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=f"❌ <b>Ошибка при продлении подписки</b>\n\n"
+                                 f"К сожалению, произошла техническая ошибка при продлении вашей подписки после успешной оплаты.\n\n"
+                                 f"<b>Детали:</b>\n"
+                                 f"• Платеж: {payment.amount:.2f} ₽\n"
+                                 f"• ID платежа: {payment_id}\n"
+                                 f"• ID подписки: {subscription_id}\n"
+                                 f"{refund_message}\n\n"
+                                 f"Пожалуйста, свяжитесь с поддержкой для решения вопроса.",
+                            reply_markup=main_menu(),
+                            parse_mode="HTML"
+                        )
+                    except Exception as notify_error:
+                        logger.error(f"Failed to send notification to user: {notify_error}")
+                    
+                    # Логируем ошибку для администратора
+                    admin_log_message = (
+                        f"🚨 КРИТИЧЕСКАЯ ОШИБКА: Платеж прошел, но подписка не продлена\n"
+                        f"• User ID: {user_id}\n"
+                        f"• Payment ID: {payment_id}\n"
+                        f"• Subscription ID: {subscription_id}\n"
+                        f"• YooKassa Payment ID: {yookassa_payment_id}\n"
+                        f"• Amount: {payment.amount:.2f} ₽\n"
+                        f"• Server ID: {server_id}\n"
+                        f"• Ошибка: {error_msg}\n"
+                        f"• Возврат средств: {'Успешно' if refund_success else 'Не удалось'}\n"
+                        f"• Refund ID: {refund_info.get('id') if refund_info else 'N/A'}"
+                    )
+                    logger.error(f"\n{'='*80}\n{admin_log_message}\n{'='*80}\n")
+                
+                # НЕ обновляем статус платежа на "failed" - он остается "paid",
+                # чтобы система повторных попыток могла обработать его
+                
+                # Прерываем выполнение функции
+                return
             
-            # Включаем клиента на сервере через API при продлении
-            if subscription.x3ui_client_email and subscription.server_id:
+            # Обновляем всех клиентов с этим subID на всех инбаундах через API при продлении
+            if subscription.sub_id and subscription.server_id:
                 renewal_server = await get_server_by_id(subscription.server_id)
                 if renewal_server:
                     try:
                         from services.x3ui_api import get_x3ui_client
-                        x3ui_client = get_x3ui_client(renewal_server.api_url, renewal_server.api_username, renewal_server.api_password)
-                        # Включаем клиента и продлеваем время (если нужно)
-                        result = await x3ui_client.update_client(
-                            client_email=subscription.x3ui_client_email,
+                        x3ui_client = get_x3ui_client(renewal_server.api_url, renewal_server.api_username, renewal_server.api_password, renewal_server.ssl_certificate)
+                        # Обновляем всех клиентов с этим subID на всех инбаундах (включаем и продлеваем время)
+                        result = await x3ui_client.update_all_clients_by_sub_id(
+                            sub_id=subscription.sub_id,
                             enable=True,
                             days=days_for_api
                         )
                         await x3ui_client.close()
                         
                         if result and not result.get("error"):
-                            print(f"✅ Клиент {subscription.x3ui_client_email} включен (без ограничения по времени в API)")
+                            updated_clients = result.get("updated", [])
+                            logger.info(f"Updated {len(updated_clients)} clients with subID {subscription.sub_id} (enabled and extended for {days_for_api} days)")
                         else:
-                            print(f"⚠️ Не удалось обновить клиента {subscription.x3ui_client_email} на сервере")
+                            error_msg = result.get("message", "Unknown error") if result else "Update error"
+                            logger.warning(f"Failed to update clients with subID {subscription.sub_id}: {error_msg}")
                     except Exception as e:
-                        print(f"⚠️ Ошибка при обновлении клиента на сервере: {e}")
+                        logger.warning(f"Error updating clients on server: {e}")
             
             # Удаляем сообщение с оплатой, если есть
             if message_id:
@@ -800,7 +1303,7 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
                     parse_mode="HTML"
                 )
             except Exception as e:
-                print(f"Ошибка при отправке уведомления пользователю: {e}")
+                logger.error(f"Failed to send notification to user: {e}")
             
             return
     
@@ -816,136 +1319,128 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
         
         # Сервер уже получен выше, используем его для API подключения
         # Создаем клиент 3x-ui API
-        print(f"🔗 Подключение к 3x-ui API: {server.api_url}")
-        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password)
+        logger.debug(f"Connecting to 3x-ui API: {server.api_url}")
+        x3ui_client = get_x3ui_client(server.api_url, server.api_username, server.api_password, server.ssl_certificate)
         
         # Создаем клиента в 3x-ui
-        # Email будет использоваться как Telegram username (тег пользователя) + уникальный ID
+        # Email будет использоваться в формате {username}@{location_unique_name}.gigabridge
         # Это позволяет одному пользователю иметь несколько подписок на одном сервере
+        
+        # Получаем название локации
+        location_name = server.location.name if server.location else "Неизвестно"
+        
+        # Генерируем уникальный subID для этой подписки (будет использован как seed для детерминированной генерации)
         import uuid as uuid_lib
-        unique_id = str(uuid_lib.uuid4())[:8]  # Берем первые 8 символов UUID для краткости
+        subscription_sub_id = str(uuid_lib.uuid4())
         
+        # Генерируем уникальное название локации (будет использовано для email и идентификатора подписки)
+        # Используем subscription_sub_id как seed для детерминированной генерации
+        from utils.db import generate_location_unique_name
+        location_unique_name = generate_location_unique_name(location_name, seed=subscription_sub_id)
+        
+        # Извлекаем уникальный код из location_unique_name (убираем название локации и дефис)
+        # Формат: {location_slug}-{unique_code}, нам нужен только unique_code
+        unique_code = location_unique_name.split('-')[-1] if '-' in location_unique_name else location_unique_name
+        
+        # Подготавливаем username для использования в email
         if user.username:
-            # Используем Telegram username + уникальный ID
-            client_email = f"{user.username}_{unique_id}"
+            username = user.username
         else:
-            # Fallback: если username нет, используем формат с tg_id + уникальный ID
-            client_email = f"user_{user.tg_id}_{unique_id}"
+            username = f"user_{user.tg_id}"
         
-        print(f"📝 Создание клиента в 3x-ui:")
-        print(f"   Email: {client_email}")
-        print(f"   Telegram ID: {user.tg_id}")
-        print(f"   Уникальный ID: {unique_id}")
+        # Нормализуем название локации для использования в email (транслитерация в латиницу, lowercase)
+        import re
+        import unicodedata
+        translit_map = {
+            'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+            'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+            'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+            'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+            'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+        }
+        normalized = unicodedata.normalize('NFKD', location_name)
+        location_slug = ''.join(translit_map.get(char.lower(), char.lower()) for char in normalized)
+        location_slug = re.sub(r'[^a-z0-9]', '', location_slug)
+        
+        logger.debug(f"Creating clients in 3x-ui: username={username}, tg_id={user.tg_id}, location={location_name}, sub_id={subscription_sub_id}")
         
         # Получаем длительность подписки (для тестирования или обычный режим)
         days_for_api, duration_timedelta = get_subscription_duration(tariff.duration_days)
         
-        # Добавляем клиента (используем метод как в test.py - автоматически использует первый inbound)
-        # В tgId отправляем Telegram ID, в email - Telegram username
-        # Не передаем total_gb, чтобы не было ограничения по трафику
-        add_result = await x3ui_client.add_client(
-            email=client_email,
+        # Создаем клиентов во всех инбаундах на основе первого клиента каждого инбаунда
+        # Для каждого инбаунда берем первого клиента как шаблон, меняем только уникальные поля
+        # Формат email: {location_name}@{protocol}&{username}&{unique_code}
+        create_result = await x3ui_client.add_client_to_all_inbounds(
+            location_name=location_slug,
+            username=username,
+            unique_code=unique_code,
             days=days_for_api,
-            tg_id=str(user.tg_id),  # Telegram ID отправляется в поле tgId
-            limit_ip=3
-            # total_gb не передаем - без ограничения по трафику
+            tg_id=str(user.tg_id),
+            limit_ip=3,
+            sub_id=subscription_sub_id
         )
         
-        # Проверяем, есть ли ошибка в ответе
-        if not add_result:
+        # Проверяем результат создания
+        if not create_result:
             raise Exception("API 3x-ui вернул пустой ответ")
         
-        if isinstance(add_result, dict) and add_result.get("error"):
-            error_msg = add_result.get("message", "Неизвестная ошибка")
-            status_code = add_result.get("status_code", "?")
-            error_type = add_result.get("error_type", "unknown")
-            available_ids = add_result.get("available_ids", [])
-            
-            if error_type == "connection":
-                raise Exception(f"Ошибка подключения к 3x-ui API: {error_msg}")
-            elif error_type == "inbound_not_found":
-                full_error_msg = f"Ошибка API 3x-ui: {error_msg}"
-                if available_ids:
-                    full_error_msg += f"\n\n💡 Проверьте настройки сервера в админ-панели. Убедитесь, что Inbound ID указан правильно."
-                raise Exception(full_error_msg)
+        if isinstance(create_result, dict) and create_result.get("error"):
+            error_msg = create_result.get("message", "Неизвестная ошибка")
+            # Если хотя бы один клиент создан, продолжаем, иначе выбрасываем ошибку
+            if len(create_result.get("created", [])) == 0:
+                raise Exception(f"Ошибка при создании клиентов: {error_msg}")
             else:
-                raise Exception(f"Ошибка API 3x-ui ({status_code}): {error_msg}")
+                logger.warning(f"⚠️ Создано клиентов: {len(create_result.get('created', []))}, но были ошибки: {error_msg}")
         
-        print(f"✅ Клиент успешно создан в 3x-ui: {add_result}")
+        # Получаем email первого созданного клиента для сохранения в БД
+        # Или используем формат для VLESS, если есть VLESS инбаунд
+        created_clients = create_result.get("created", [])
+        if created_clients:
+            # Ищем VLESS клиента в первую очередь, если есть
+            vless_client = next((c for c in created_clients if c.get("protocol") == "vless"), None)
+            if vless_client:
+                client_email = vless_client.get("email")
+            else:
+                # Берем первого созданного клиента
+                client_email = created_clients[0].get("email")
+        else:
+            # Fallback: используем формат для VLESS
+            client_email = f"{location_slug}@vless&{username}&{unique_code}"
         
-        # Получаем ID клиента из ответа
-        # Для VLESS/VMESS это UUID, для TROJAN это password, для Shadowsocks это email
-        x3ui_client_id = None
-        if isinstance(add_result, dict):
-            # Сначала пробуем получить client_id из ответа (UUID, который мы создали)
-            x3ui_client_id = add_result.get("client_id") or add_result.get("id") or add_result.get("uuid") or add_result.get("password")
+        logger.info(f"✅ Создано клиентов во всех инбаундах: {len(created_clients)}/{create_result.get('total_inbounds', 0)}")
+        for client_info in created_clients:
+            network = client_info.get('network', 'N/A')
+            protocol = client_info.get('protocol', 'N/A')
+            logger.info(f"   - Inbound {client_info.get('inbound_id')} ({protocol}, network: {network}): {client_info.get('email')}")
         
-        # Если ID не найден в ответе, получаем клиента по email для получения UUID
-        if not x3ui_client_id:
-            print(f"🔍 UUID не найден в ответе, получаем клиента по email: {client_email}")
-            try:
-                client_info = await x3ui_client.get_client_by_email(client_email)
-                if client_info:
-                    # В get_client_by_email возвращается client из settings, где id - это UUID клиента
-                    # Для VLESS/VMESS используем id (UUID), для TROJAN - password, для Shadowsocks - email
-                    x3ui_client_id = client_info.get("id") or client_info.get("uuid") or client_info.get("password") or client_email
-                    print(f"✅ Получен UUID клиента из API: {x3ui_client_id}")
-            except Exception as e:
-                print(f"⚠️ Ошибка при получении клиента по email: {e}")
-        
-        # Если все еще не найден, используем email как fallback
-        if not x3ui_client_id:
-            x3ui_client_id = client_email
-            print(f"⚠️ Используем email как ID клиента: {x3ui_client_id}")
-        
-        print(f"🆔 ID клиента 3x-ui: {x3ui_client_id}")
-        print(f"📧 Email клиента: {client_email}")
-        
-        # Получаем VLESS ключ для клиента
-        # Используем уникальный client_email для отображения в конце ссылки (уже содержит уникальный ID)
-        x3ui_subscription_link = await x3ui_client.get_client_vless_link(
-            client_email=client_email,
-            client_username=client_email,  # Используем уникальный email вместо username
-            server_pbk=server.pbk
+        # Получаем ключи подписки по subID (это вернет список ключей для клиентов с этим subID)
+        import json
+        client_keys_list = await x3ui_client.get_client_keys_from_subscription(
+            subscription_sub_id
         )
         
-        if not x3ui_subscription_link:
-            print(f"⚠️ Не удалось сгенерировать VLESS ключ для клиента")
-            # Пробуем использовать старый метод как fallback
-            x3ui_subscription_link = await x3ui_client.get_client_subscription_link(
-                client_email=client_email
-            )
-            if not x3ui_subscription_link:
-                # Если и это не сработало, формируем базовую ссылку
-                client_info = await x3ui_client.get_client_by_email(client_email)
-                if client_info and client_info.get("inbound_id"):
-                    inbound_id = client_info["inbound_id"]
-                    base_url = server.api_url.rstrip('/')
-                    x3ui_subscription_link = f"{base_url}/sub/{inbound_id}/{x3ui_client_id}"
-                    print(f"⚠️ Использована базовая ссылка подписки: {x3ui_subscription_link}")
+        # Преобразуем список ключей в JSON строку для сохранения в БД
+        if client_keys_list:
+            x3ui_subscription_link = json.dumps(client_keys_list, ensure_ascii=False)
+            logger.info(f"Subscription keys received for {len(client_keys_list)} clients")
         else:
-            print(f"✅ Получен VLESS ключ: {x3ui_subscription_link[:100]}...")
+            logger.warning(f"Failed to get subscription keys by subID (inbound may be missing)")
+            x3ui_subscription_link = None
         
         # Сохраняем данные для создания подписки
         x3ui_client_email = client_email
-        
-        # Если ссылка все еще не получена, выбрасываем ошибку
-        if not x3ui_subscription_link:
-            error_msg = f"Не удалось получить ссылку подписки для клиента. Email: {client_email}, ID: {x3ui_client_id}"
-            print(f"❌ {error_msg}")
-            raise Exception(error_msg)
         
         # Закрываем сессию после использования
         try:
             await x3ui_client.close()
         except Exception as close_error:
-            print(f"⚠️ Ошибка при закрытии сессии: {close_error}")
+            logger.warning(f"Error closing session: {close_error}")
             
     except Exception as e:
         error_msg = f"Ошибка при создании клиента в 3x-ui: {str(e)}"
-        print(f"❌ {error_msg}")
+        logger.error(f"{error_msg}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
         
         # Закрываем сессию в случае ошибки
         try:
@@ -954,44 +1449,243 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
         except:
             pass
         
-        # Отправляем ошибку пользователю
-        try:
-            await bot.send_message(
-                chat_id=user_id,
-                text=f"❌ <b>Ошибка при создании подписки</b>\n\n"
-                     f"Произошла ошибка при создании вашей подписки.\n"
-                     f"Пожалуйста, свяжитесь с администратором.\n\n"
-                     f"<code>{error_msg}</code>",
-                reply_markup=main_menu(),
-                parse_mode="HTML"
-            )
-        except:
-            pass
-        
-        # Прерываем выполнение - не создаем подписку без ключа
-        raise Exception(error_msg)
+        # Если это ошибка отсутствия инбаунда - это нормально, продолжаем без ключа
+        if "инбаунд не найден" in error_msg.lower() or "missing_inbound" in error_msg.lower():
+            logger.warning(f"Inbound missing - continuing subscription creation without key")
+            x3ui_subscription_link = None
+            x3ui_client_email = None
+        else:
+            # Для других ошибок создаем запись для повторной попытки вместо немедленного исключения
+            try:
+                from services.subscription_retry import create_failed_attempt
+                
+                # Определяем тип ошибки
+                error_type = "api_error"
+                if "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                    error_type = "connection_error"
+                elif "authentication" in error_msg.lower() or "auth" in error_msg.lower():
+                    error_type = "authentication_error"
+                
+                # Создаем запись о неудачной попытке
+                failed_attempt = await create_failed_attempt(
+                    payment_id=payment_id,
+                    user_id=user.id,
+                    server_id=server_id,
+                    error_message=error_msg,
+                    error_type=error_type,
+                    subscription_id=None,
+                    is_renewal=False
+                )
+                
+                logger.info(
+                    f"📝 Создана запись о неудачной попытке создания подписки (API ошибка): "
+                    f"attempt_id={failed_attempt.id}, будет повторная попытка через 5 минут"
+                )
+                
+                # Уведомляем пользователя
+                try:
+                    await bot.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"⚠️ <b>Техническая ошибка при создании подписки</b>\n\n"
+                            f"Произошла ошибка при создании вашей подписки на сервере.\n\n"
+                            f"<b>Не беспокойтесь:</b>\n"
+                            f"• Платеж успешно обработан\n"
+                            f"• Мы автоматически повторим попытку создания подписки\n"
+                            f"• Вы получите уведомление, как только подписка будет активирована\n\n"
+                            f"<b>Детали:</b>\n"
+                            f"• Платеж: {payment.amount:.2f} ₽\n"
+                            f"• ID платежа: {payment_id}\n\n"
+                            f"Если подписка не будет активирована в течение 2 часов, "
+                            f"средства будут автоматически возвращены на ваш счет."
+                        ),
+                        reply_markup=main_menu(),
+                        parse_mode="HTML"
+                    )
+                except Exception as notify_error:
+                    logger.error(f"Failed to send notification to user: {notify_error}")
+                
+                # Прерываем выполнение функции - подписка будет создана при повторной попытке
+                return
+                
+            except Exception as retry_error:
+                # Если не удалось создать запись для повторной попытки,
+                # пробрасываем исключение дальше
+                logger.error(f"❌ Ошибка при создании записи о неудачной попытке: {retry_error}")
+                logger.error(traceback.format_exc())
+                raise Exception(error_msg)
+    
+    # Убеждаемся, что переменные определены (на случай если был except блок)
+    if 'x3ui_subscription_link' not in locals():
+        x3ui_subscription_link = None
+    if 'x3ui_client_email' not in locals():
+        x3ui_client_email = None
+    if 'subscription_sub_id' not in locals():
+        import uuid as uuid_lib
+        subscription_sub_id = str(uuid_lib.uuid4())
+    if 'location_unique_name' not in locals():
+        # Генерируем location_unique_name если его нет
+        from utils.db import generate_location_unique_name
+        location_unique_name = generate_location_unique_name(location_name, seed=subscription_sub_id)
     
     # Получаем длительность подписки (для тестирования или обычный режим)
     days_for_api, duration_timedelta = get_subscription_duration(tariff.duration_days)
     
     # Создаем подписку с сроком действия в БД (1 минута в тесте, 30 дней в обычном режиме)
     expire_date = datetime.utcnow() + duration_timedelta
-    subscription = await create_subscription(
-        user_id=user.id,
-        server_id=server_id,
-        tariff_id=tariff.id,
-        x3ui_client_id=x3ui_subscription_link,  # Сохраняем ссылку подписки
-        x3ui_client_email=x3ui_client_email,
-        status="active",
-        expire_date=expire_date,  # Срок действия в БД (1 минута в тесте, 30 дней в обычном режиме)
-        traffic_limit=tariff.traffic_limit
-    )
     
-    # Отмечаем, что пользователь использовал скидку на первую покупку
-    await mark_user_used_discount(user.id)
-    
-    # Обновляем счетчик пользователей на сервере
-    await update_server_current_users(server_id)
+    # КРИТИЧЕСКИЙ БЛОК: Создание подписки и связанных операций
+    # Если здесь произойдет ошибка после успешной оплаты, нужно вернуть средства
+    subscription = None
+    try:
+        # Создаем подписку (даже если ключа нет - это нормально, если инбаунд отсутствует)
+        subscription = await create_subscription(
+            user_id=user.id,
+            server_id=server_id,
+            tariff_id=tariff.id,
+            x3ui_client_id=x3ui_subscription_link,  # Может быть None, если инбаунд отсутствует
+            x3ui_client_email=x3ui_client_email,  # Может быть None, если инбаунд отсутствует
+            sub_id=subscription_sub_id,  # Уникальный subID для этой подписки
+            location_unique_name=location_unique_name,  # Сохраняем уникальное название локации
+            status="active",
+            expire_date=expire_date,  # Срок действия в БД (1 минута в тесте, 30 дней в обычном режиме)
+            traffic_limit=tariff.traffic_limit
+        )
+        
+        # Отмечаем, что пользователь использовал скидку на первую покупку
+        await mark_user_used_discount(user.id)
+        
+        # Обновляем счетчик пользователей на сервере
+        await update_server_current_users(server_id)
+        
+    except Exception as subscription_error:
+        # КРИТИЧЕСКАЯ ОШИБКА: Платеж прошел, но подписка не создана
+        error_msg = f"Ошибка при создании подписки после успешной оплаты: {str(subscription_error)}"
+        logger.error(f"{error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Вместо немедленного возврата средств создаем запись для повторной попытки
+        try:
+            from services.subscription_retry import create_failed_attempt
+            
+            # Определяем тип ошибки
+            error_type = "database_error"
+            if "3x-ui" in error_msg.lower() or "api" in error_msg.lower() or "x3ui" in error_msg.lower():
+                error_type = "api_error"
+            elif "database" in error_msg.lower() or "sql" in error_msg.lower():
+                error_type = "database_error"
+            else:
+                error_type = "unknown_error"
+            
+            # Создаем запись о неудачной попытке
+            failed_attempt = await create_failed_attempt(
+                payment_id=payment_id,
+                user_id=user.id,
+                server_id=server_id,
+                error_message=error_msg,
+                error_type=error_type,
+                subscription_id=None,
+                is_renewal=False
+            )
+            
+            logger.info(
+                f"📝 Создана запись о неудачной попытке создания подписки: "
+                f"attempt_id={failed_attempt.id}, будет повторная попытка через 5 минут"
+            )
+            
+            # Уведомляем пользователя
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"⚠️ <b>Техническая ошибка при создании подписки</b>\n\n"
+                        f"К сожалению, произошла техническая ошибка при создании вашей подписки после успешной оплаты.\n\n"
+                        f"<b>Не беспокойтесь:</b>\n"
+                        f"• Платеж успешно обработан\n"
+                        f"• Мы автоматически повторим попытку создания подписки\n"
+                        f"• Вы получите уведомление, как только подписка будет активирована\n\n"
+                        f"<b>Детали:</b>\n"
+                        f"• Платеж: {payment.amount:.2f} ₽\n"
+                        f"• ID платежа: {payment_id}\n\n"
+                        f"Если подписка не будет активирована в течение 2 часов, "
+                        f"средства будут автоматически возвращены на ваш счет."
+                    ),
+                    reply_markup=main_menu(),
+                    parse_mode="HTML"
+                )
+            except Exception as notify_error:
+                logger.error(f"Failed to send notification to user: {notify_error}")
+            
+        except Exception as retry_error:
+            # Если не удалось создать запись для повторной попытки,
+            # возвращаемся к старому поведению - пытаемся вернуть средства
+            logger.error(f"❌ Ошибка при создании записи о неудачной попытке: {retry_error}")
+            logger.error(traceback.format_exc())
+            
+            # Получаем yookassa_payment_id для возврата средств
+            yookassa_payment_id = payment.yookassa_payment_id if payment else None
+            
+            # Пытаемся вернуть средства пользователю
+            refund_success = False
+            refund_info = None
+            if yookassa_payment_id:
+                try:
+                    refund_info = yookassa_service.refund_payment(
+                        payment_id=yookassa_payment_id,
+                        description=f"Возврат средств из-за ошибки создания подписки. Payment ID: {payment_id}"
+                    )
+                    if refund_info:
+                        refund_success = True
+                        logger.info(f"Refund completed: refund_id={refund_info.get('id')}, amount={refund_info.get('amount')}")
+                    else:
+                        logger.warning(f"Failed to refund payment {yookassa_payment_id}")
+                except Exception as refund_error:
+                    logger.error(f"Refund error: {refund_error}")
+                    logger.error(traceback.format_exc())
+            
+            # Уведомляем пользователя
+            try:
+                refund_message = ""
+                if refund_success:
+                    refund_message = "\n\n✅ <b>Средства будут возвращены на ваш счет в течение нескольких рабочих дней.</b>"
+                elif yookassa_payment_id:
+                    refund_message = "\n\n⚠️ <b>Мы обработаем возврат средств вручную. Пожалуйста, свяжитесь с поддержкой.</b>"
+                
+                await bot.send_message(
+                    chat_id=user_id,
+                    text=f"❌ <b>Ошибка при создании подписки</b>\n\n"
+                         f"К сожалению, произошла техническая ошибка при создании вашей подписки после успешной оплаты.\n\n"
+                         f"<b>Детали:</b>\n"
+                         f"• Платеж: {payment.amount:.2f} ₽\n"
+                         f"• ID платежа: {payment_id}\n"
+                         f"{refund_message}\n\n"
+                         f"Пожалуйста, свяжитесь с поддержкой для решения вопроса.",
+                    reply_markup=main_menu(),
+                    parse_mode="HTML"
+                )
+            except Exception as notify_error:
+                logger.error(f"Failed to send notification to user: {notify_error}")
+            
+            # Логируем ошибку для администратора
+            admin_log_message = (
+                f"🚨 КРИТИЧЕСКАЯ ОШИБКА: Платеж прошел, но подписка не создана\n"
+                f"• User ID: {user_id}\n"
+                f"• Payment ID: {payment_id}\n"
+                f"• YooKassa Payment ID: {yookassa_payment_id}\n"
+                f"• Amount: {payment.amount:.2f} ₽\n"
+                f"• Server ID: {server_id}\n"
+                f"• Ошибка: {error_msg}\n"
+                f"• Возврат средств: {'Успешно' if refund_success else 'Не удалось'}\n"
+                f"• Refund ID: {refund_info.get('id') if refund_info else 'N/A'}"
+            )
+            logger.error(f"\n{'='*80}\n{admin_log_message}\n{'='*80}\n")
+        
+        # НЕ обновляем статус платежа на "failed" - он остается "paid",
+        # чтобы система повторных попыток могла обработать его
+        
+        # Прерываем выполнение функции
+        return
     
     # Удаляем сообщение с оплатой, если есть
     if message_id:
@@ -1011,11 +1705,11 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
             reply_markup=main_menu(),
             parse_mode="HTML"
         )
-        print(f"✅ Кнопки главного меню отправлены ДО сообщения с ключом (chat_id: {user_id})")
+        logger.debug(f"Main menu buttons sent before key message (chat_id: {user_id})")
         # Небольшая задержка, чтобы кнопки успели отобразиться
         await asyncio.sleep(0.3)
     except Exception as e:
-        print(f"⚠️ Ошибка при отправке кнопок главного меню перед ключом: {e}")
+        logger.warning(f"Error sending main menu buttons before key: {e}")
     
     # Отправляем уведомление пользователю с информацией о подписке (как из профиля)
     try:
@@ -1030,10 +1724,13 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
         # Формируем текст с детальной информацией о подписке (как в профиле)
         text = f"📦 <b>{location_name} ({subscription_id}) - {status_emoji} {status_text}</b>\n\n"
         
-        # Ключ
-        if subscription.x3ui_client_id:
-            text += f"🔑 <b>Ваш ключ:</b>\n"
-            text += f"<code>{subscription.x3ui_client_id}</code>\n\n"
+        # Ссылка на подписку
+        if subscription.sub_id:
+            # Извлекаем IP адрес из api_url сервера
+            from utils.db import generate_subscription_link
+            subscription_link = generate_subscription_link(server, subscription.sub_id)
+            text += f"🔗 <b>Ссылка на подписку:</b>\n"
+            text += f"<code>{subscription_link}</code>\n\n"
         
         # Время действия
         if subscription.expire_date:
@@ -1069,15 +1766,19 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
                         elif minutes_left > 0:
                             text += f"⏰ <b>Осталось:</b> {minutes_left} мин.\n"
         
-        # Генерируем QR-код для ключа (если есть)
+        # Генерируем QR-код для ссылки на подписку (если есть sub_id)
         photo = None
-        if subscription.x3ui_client_id:
+        if subscription.sub_id:
             try:
+                # Генерируем ссылку на подписку
+                from utils.db import generate_subscription_link
+                subscription_link = generate_subscription_link(server, subscription.sub_id)
+                
                 import qrcode
                 import io
                 # Генерируем QR-код
                 qr = qrcode.QRCode(version=1, box_size=10, border=5)
-                qr.add_data(subscription.x3ui_client_id)
+                qr.add_data(subscription_link)
                 qr.make(fit=True)
                 
                 # Создаем изображение
@@ -1092,7 +1793,7 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
                 from aiogram.types import BufferedInputFile
                 photo = BufferedInputFile(img_byte_arr.read(), filename="qrcode.png")
             except Exception as e:
-                print(f"Ошибка при генерации QR-кода: {e}")
+                logger.warning(f"QR code generation error: {e}")
                 # Если не удалось сгенерировать, просто не отправляем фото
         
         # Кнопки управления подпиской
@@ -1100,12 +1801,13 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
         
         # Проверяем, является ли это продлением или первой покупкой
         # При первой покупке (is_renewal=False) не показываем кнопки "Продлить" и "Назад к профилю"
-        if is_renewal:
+        # Также не показываем кнопку "Продлить" для приватных подписок (они бессрочные)
+        if is_renewal and not subscription.is_private:
             kb.button(text="🔄 Продлить", callback_data=f"renew_subscription_{subscription.id}")
             kb.button(text="📖 Инструкции", callback_data="show_instructions_after_purchase")
             kb.button(text="🔙 Назад к профилю", callback_data="back_to_profile")
         else:
-            # При первой покупке только кнопка инструкций
+            # При первой покупке или для приватных подписок только кнопка инструкций
             kb.button(text="📖 Инструкции", callback_data="show_instructions_after_purchase")
         
         kb.adjust(1)
@@ -1135,16 +1837,17 @@ async def handle_successful_payment(payment_id: int, user_id: int, server_id: in
         try:
             menu_message = await bot.send_message(
                 chat_id=user_id,
-                text=" ",  # Минимальный текст (пробел)
+                text="📱 <b>Главное меню</b>",
+                parse_mode="HTML",
                 reply_markup=main_menu()
             )
-            print(f"✅ Кнопки главного меню отправлены ПОСЛЕ сообщения с ключом (message_id: {menu_message.message_id})")
+            logger.debug(f"Main menu buttons sent after key message (message_id: {menu_message.message_id})")
         except Exception as e:
-            print(f"⚠️ Ошибка при отправке кнопок главного меню после ключа: {e}")
+            logger.warning(f"Error sending main menu buttons after key: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
     except Exception as e:
-        print(f"Ошибка при отправке уведомления пользователю: {e}")
+        logger.error(f"Error sending notification to user: {e}")
 
 
 @router.callback_query(F.data.startswith("pay_renew_"))
@@ -1210,7 +1913,24 @@ async def pay_renew_handler(callback: types.CallbackQuery, state: FSMContext):
         return
     
     try:
-        final_price = state_data.get("final_price", location.price)
+        # Пересчитываем цену на основе текущего TEST_MODE, а не используем сохраненное значение
+        # Получаем реальную цену локации
+        base_price = location.price
+        # Применяем TEST_MODE к реальной цене
+        final_price = get_test_price(base_price)
+        
+        # Проверяем наличие email в БД перед созданием платежа
+        if not user.email or not validate_email(user.email):
+            # Запрашиваем email
+            action_data = {
+                "location_id": location_id,
+                "server_id": server_id,
+                "final_price": final_price,
+                "subscription_id": subscription_id,
+                "is_renewal": True
+            }
+            await check_and_request_email(user, callback, state, action_data)
+            return
         
         # Удаляем предыдущее сообщение
         try:
@@ -1226,10 +1946,20 @@ async def pay_renew_handler(callback: types.CallbackQuery, state: FSMContext):
             description += " (тестовый режим)"
         
         try:
+            # Используем email из БД
+            customer_email = user.email
+            customer_phone = getattr(callback.from_user, 'phone', None)
+            
+            # Формируем название товара для чека (обрезаем до 128 символов)
+            receipt_item_description = description[:128] if len(description) > 128 else description
+            
             payment_data = await yookassa_service.create_payment(
                 amount=final_price,
                 description=description,
-                user_id=str(callback.from_user.id)
+                user_id=str(callback.from_user.id),
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+                receipt_item_description=receipt_item_description
             )
         except Exception as payment_error:
                 # Обработка ошибок при создании платежа
@@ -1238,7 +1968,19 @@ async def pay_renew_handler(callback: types.CallbackQuery, state: FSMContext):
                 # Формируем понятное сообщение для пользователя
                 user_error_message = "❌ <b>Ошибка при создании платежа</b>\n\n"
                 
-                if "авторизации" in error_message.lower() or "authentication" in error_message.lower():
+                if ("ssl" in error_message.lower() or 
+                "подключения" in error_message.lower() or 
+                "сетевым" in error_message.lower() or
+                "httpsconnectionpool" in error_message.lower() or
+                "max retries exceeded" in error_message.lower() or
+                "сетевым подключением" in error_message.lower() or
+                "платежной системе" in error_message.lower()):
+                    user_error_message += "Произошла ошибка подключения к платежной системе.\n\n"
+                    user_error_message += "Возможные причины:\n"
+                    user_error_message += "• Проблемы с интернет-соединением\n"
+                    user_error_message += "• Временные проблемы на стороне платежной системы\n\n"
+                    user_error_message += "Попробуйте создать платеж еще раз через несколько секунд."
+                elif "авторизации" in error_message.lower() or "authentication" in error_message.lower():
                     user_error_message += "Произошла ошибка авторизации в платежной системе.\n"
                     user_error_message += "Пожалуйста, попробуйте позже или свяжитесь с поддержкой."
                 elif "некорректные данные" in error_message.lower() or "invalid" in error_message.lower():
@@ -1387,18 +2129,18 @@ async def restore_payment_message(user_id: int, state: FSMContext):
     user = await get_user_by_tg_id(str(user_id))
     is_new_user = False
     discount_percent = 0.0
-    final_price = location.price
+    final_price = get_test_price(location.price)
     
     if user:
         has_purchase = await has_user_made_purchase(user.id)
         if not has_purchase and not user.used_first_purchase_discount:
             is_new_user = True
             discount_percent = config.FIRST_PURCHASE_DISCOUNT_PERCENT
-            final_price = location.price * (1 - discount_percent / 100)
+            final_price = get_test_price(location.price * (1 - discount_percent / 100))
     
     # Сбрасываем данные промокода в state
     await state.update_data(
-        original_price=location.price,
+        original_price=get_test_price(location.price),
         final_price=final_price,
         discount_applied=is_new_user,
         discount_percent=discount_percent,
@@ -1414,11 +2156,11 @@ async def restore_payment_message(user_id: int, state: FSMContext):
     
     if is_new_user:
         text += f"🎉 <b>Специальное предложение для новых пользователей!</b>\n\n"
-        text += f"💰 <b>Цена:</b> <s>{location.price:.0f} ₽</s>\n"
+        text += f"💰 <b>Цена:</b> <s>{get_test_price(location.price):.0f} ₽</s>\n"
         text += f"💎 <b>Ваша цена:</b> <b>{final_price:.0f} ₽</b>\n"
         text += f"🎁 <b>Скидка {discount_percent:.0f}% на первую покупку!</b>\n\n"
     else:
-        text += f"💎 <b>Стоимость:</b> {location.price:.0f} ₽\n\n"
+        text += f"💎 <b>Стоимость:</b> {get_test_price(location.price):.0f} ₽\n\n"
     
     text += "✨ После оплаты вы получите:\n"
     text += "   • Персональный ключ\n"
@@ -1483,5 +2225,85 @@ async def cancel_promo_code_message(message: types.Message, state: FSMContext):
     
     # Восстанавливаем сообщение об оплате
     await restore_payment_message(message.from_user.id, state)
+
+
+@router.message(EmailStates.waiting_email, F.text.startswith("/"))
+async def clear_email_state_on_command(message: types.Message, state: FSMContext):
+    """Очищаем состояние ожидания email при получении команды"""
+    await state.clear()
+    # Команда будет обработана соответствующим обработчиком
+
+
+@router.message(EmailStates.waiting_email, ~F.text.startswith("/"))
+async def process_email_input(message: types.Message, state: FSMContext):
+    """Обработка введенного email"""
+    if not message.text:
+        return
+    
+    email = message.text.strip()
+    
+    # Валидация email
+    if not validate_email(email):
+        await message.answer(
+            "❌ <b>Неверный формат email</b>\n\n"
+            "Пожалуйста, введите корректный email адрес.\n"
+            "Пример: example@mail.ru",
+            parse_mode="HTML"
+        )
+        return
+    
+    # Сохраняем email в БД
+    user = await get_user_by_tg_id(str(message.from_user.id))
+    if not user:
+        await message.answer("❌ Пользователь не найден. Используйте /start", reply_markup=main_menu())
+        await state.clear()
+        return
+    
+    await update_user_email(str(message.from_user.id), email)
+    user.email = email
+    
+    await message.answer(f"✅ Email сохранен: {email}\n\nТеперь можно продолжить оплату.")
+    
+    # Получаем сохраненные данные из state
+    state_data = await state.get_data()
+    waiting_for_email = state_data.get("waiting_for_email", False)
+    
+    if not waiting_for_email:
+        await state.clear()
+        return
+    
+    # Продолжаем процесс оплаты
+    location_id = state_data.get("location_id")
+    final_price = state_data.get("final_price")
+    original_price = state_data.get("original_price", final_price)
+    discount_applied = state_data.get("discount_applied", False)
+    discount_percent = state_data.get("discount_percent", 0.0)
+    promo_code_id = state_data.get("promo_code_id")
+    promo_code_discount = state_data.get("promo_code_discount", 0.0)
+    is_renewal = state_data.get("is_renewal", False)
+    subscription_id = state_data.get("subscription_id")
+    server_id = state_data.get("server_id")
+    
+    if not location_id or not final_price:
+        await message.answer("❌ Ошибка: данные платежа не найдены. Попробуйте начать заново.", reply_markup=main_menu())
+        await state.clear()
+        return
+    
+    # Удаляем флаг ожидания email, но сохраняем данные для продления
+    await state.update_data(waiting_for_email=False)
+    
+    # Продолжаем создание платежа
+    await continue_payment_after_email(
+        message, state, location_id, final_price, original_price,
+        discount_applied, discount_percent, promo_code_id, promo_code_discount, user
+    )
+
+
+@router.callback_query(F.data == "cancel_email_input")
+async def cancel_email_input_handler(callback: types.CallbackQuery, state: FSMContext):
+    """Отмена ввода email"""
+    await callback.answer("❌ Ввод email отменен")
+    await state.clear()
+    await callback.message.answer("❌ Ввод email отменен", reply_markup=main_menu())
 
 

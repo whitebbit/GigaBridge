@@ -48,8 +48,9 @@ def promocode_list_keyboard(promocodes: list):
             uses_text = f"{promo.current_uses}/∞"
         else:
             uses_text = f"{promo.current_uses}/{promo.max_uses}"
+        reuse_icon = "♻️" if promo.allow_reuse_by_same_user else ""
         kb.button(
-            text=f"{status} {promo.code} - {promo.discount_percent:.0f}% ({uses_text})",
+            text=f"{status} {promo.code} - {promo.discount_percent:.0f}% ({uses_text}) {reuse_icon}",
             callback_data=f"admin_promocode_edit_{promo.id}"
         )
     kb.button(text="🔙 Назад", callback_data="admin_promocodes")
@@ -63,10 +64,11 @@ def promocode_edit_keyboard(promocode_id: int):
     kb.button(text="✏️ Код", callback_data=f"admin_promocode_edit_code_{promocode_id}")
     kb.button(text="💰 Скидка", callback_data=f"admin_promocode_edit_discount_{promocode_id}")
     kb.button(text="🔢 Лимит", callback_data=f"admin_promocode_edit_max_uses_{promocode_id}")
+    kb.button(text="♻️ Повтор", callback_data=f"admin_promocode_toggle_reuse_{promocode_id}")
     kb.button(text="🔄 Статус", callback_data=f"admin_promocode_toggle_{promocode_id}")
     kb.button(text="🗑️ Удалить", callback_data=f"admin_promocode_delete_{promocode_id}")
     kb.button(text="🔙 Назад", callback_data="admin_promocode_list")
-    kb.adjust(2, 2, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1)
     return kb.as_markup()
 
 
@@ -74,6 +76,7 @@ class AddPromoCodeStates(StatesGroup):
     waiting_code = State()
     waiting_discount = State()
     waiting_max_uses = State()
+    waiting_allow_reuse = State()
 
 
 class EditPromoCodeStates(StatesGroup):
@@ -115,9 +118,11 @@ async def promocode_list_callback(callback: types.CallbackQuery):
         text += f"{status} <b>{html.escape(promo.code)}</b>\n"
         text += f"   💰 Скидка: {promo.discount_percent:.0f}%\n"
         if promo.max_uses is None:
-            text += f"   📊 Использований: {promo.current_uses}/∞ (безлимитный)\n\n"
+            text += f"   📊 Использований: {promo.current_uses}/∞ (безлимитный)\n"
         else:
-            text += f"   📊 Использований: {promo.current_uses}/{promo.max_uses}\n\n"
+            text += f"   📊 Использований: {promo.current_uses}/{promo.max_uses}\n"
+        reuse_text = "✅ Можно использовать многократно" if promo.allow_reuse_by_same_user else "❌ Один раз на пользователя"
+        text += f"   ♻️ {reuse_text}\n\n"
     
     await safe_edit_text(callback.message, text, reply_markup=promocode_list_keyboard(promocodes))
 
@@ -197,6 +202,35 @@ async def promocode_add_max_uses(message: types.Message, state: FSMContext):
             await message.answer("❌ Неверный формат. Введите целое число или 0/unlimited для безлимитного:", reply_markup=cancel_keyboard())
             return
     
+    await state.update_data(max_uses=max_uses)
+    await message.answer(
+        "Разрешить многократное использование одним пользователем?\n\n"
+        "• <b>да</b> или <b>1</b> - один пользователь может использовать промокод многократно\n"
+        "• <b>нет</b> или <b>0</b> - каждый пользователь может использовать промокод только один раз",
+        reply_markup=cancel_keyboard(),
+        parse_mode="HTML"
+    )
+    await state.set_state(AddPromoCodeStates.waiting_allow_reuse)
+
+
+@router.message(AddPromoCodeStates.waiting_allow_reuse, AdminFilter())
+async def promocode_add_allow_reuse(message: types.Message, state: FSMContext):
+    """Ввод настройки повторного использования"""
+    text_input = message.text.strip().lower()
+    allow_reuse = False
+    
+    if text_input in ["да", "yes", "1", "true", "разрешено", "разрешить"]:
+        allow_reuse = True
+    elif text_input in ["нет", "no", "0", "false", "запрещено", "запретить"]:
+        allow_reuse = False
+    else:
+        await message.answer(
+            "❌ Неверный формат. Введите <b>да</b> или <b>нет</b>:",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
     data = await state.get_data()
     await state.clear()
     
@@ -204,19 +238,23 @@ async def promocode_add_max_uses(message: types.Message, state: FSMContext):
         promo_code = await create_promo_code(
             code=data["code"],
             discount_percent=data["discount_percent"],
-            max_uses=max_uses
+            max_uses=data["max_uses"],
+            allow_reuse_by_same_user=allow_reuse
         )
         
-        if max_uses is None:
+        if data["max_uses"] is None:
             max_uses_text = "∞ (безлимитный)"
         else:
-            max_uses_text = str(max_uses)
+            max_uses_text = str(data["max_uses"])
+        
+        reuse_text = "Да (многократно одним пользователем)" if allow_reuse else "Нет (один раз на пользователя)"
         
         await message.answer(
             f"✅ <b>Промокод успешно добавлен!</b>\n\n"
             f"Код: <b>{html.escape(promo_code.code)}</b>\n"
             f"Скидка: {promo_code.discount_percent:.0f}%\n"
-            f"Макс. использований: {max_uses_text}",
+            f"Макс. использований: {max_uses_text}\n"
+            f"Повторное использование: {reuse_text}",
             reply_markup=promocodes_menu(),
             parse_mode="HTML"
         )
@@ -240,6 +278,7 @@ async def promocode_edit_menu(callback: types.CallbackQuery):
         return
     
     status = "✅ Активен" if promo.is_active else "❌ Неактивен"
+    reuse_status = "✅ Разрешено" if promo.allow_reuse_by_same_user else "❌ Запрещено"
     text = f"✏️ <b>Редактирование промокода</b>\n\n"
     text += f"ID: {promo.id}\n"
     text += f"Код: <b>{html.escape(promo.code)}</b>\n"
@@ -249,6 +288,7 @@ async def promocode_edit_menu(callback: types.CallbackQuery):
         text += f"Использований: {promo.current_uses}/∞ (безлимитный)\n"
     else:
         text += f"Использований: {promo.current_uses}/{promo.max_uses}\n"
+    text += f"Повторное использование: {reuse_status}\n"
     text += f"Создан: {promo.created_at.strftime('%d.%m.%Y %H:%M')}\n"
     
     await safe_edit_text(
@@ -397,7 +437,7 @@ async def promocode_edit_max_uses(message: types.Message, state: FSMContext):
 
 
 # Переключение статуса
-@router.callback_query(F.data.startswith("admin_promocode_toggle_"), AdminFilter())
+@router.callback_query(F.data.startswith("admin_promocode_toggle_") & ~F.data.contains("_reuse_"), AdminFilter())
 async def promocode_toggle(callback: types.CallbackQuery):
     """Переключение статуса промокода"""
     await callback.answer()
@@ -416,6 +456,34 @@ async def promocode_toggle(callback: types.CallbackQuery):
         await safe_edit_text(
             callback.message,
             f"✅ Промокод <b>{html.escape(promo.code)}</b> {status_text}",
+            reply_markup=promocode_edit_keyboard(promocode_id)
+        )
+    else:
+        await safe_edit_text(callback.message, "❌ Ошибка при обновлении промокода", reply_markup=promocodes_menu())
+
+
+# Переключение разрешения повторного использования
+@router.callback_query(F.data.startswith("admin_promocode_toggle_reuse_"), AdminFilter())
+async def promocode_toggle_reuse(callback: types.CallbackQuery):
+    """Переключение разрешения повторного использования промокода одним пользователем"""
+    await callback.answer()
+    promocode_id = int(callback.data.split("_")[-1])
+    promo = await get_promo_code_by_id(promocode_id)
+    
+    if not promo:
+        await safe_edit_text(callback.message, "❌ Промокод не найден!", reply_markup=promocodes_menu())
+        return
+    
+    new_reuse_status = not promo.allow_reuse_by_same_user
+    promo = await update_promo_code(promocode_id, allow_reuse_by_same_user=new_reuse_status)
+    
+    if promo:
+        reuse_text = "разрешено" if new_reuse_status else "запрещено"
+        status_text = "✅ Разрешено (многократно одним пользователем)" if new_reuse_status else "❌ Запрещено (один раз на пользователя)"
+        await safe_edit_text(
+            callback.message,
+            f"✅ Повторное использование промокода <b>{html.escape(promo.code)}</b> {reuse_text}\n\n"
+            f"{status_text}",
             reply_markup=promocode_edit_keyboard(promocode_id)
         )
     else:
@@ -446,9 +514,62 @@ async def promocode_delete(callback: types.CallbackQuery):
 
 
 # Обработка отмены
+@router.callback_query(F.data == "cancel", AdminFilter())
+async def cancel_callback_handler(callback: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки отмены для callback"""
+    current_state = await state.get_state()
+    
+    # Пропускаем состояния рассылки - они обрабатываются в dashboard.py
+    if current_state and "BroadcastStates" in current_state:
+        return
+    
+    # Проверяем, что мы находимся в состоянии, связанном с промокодами
+    promocode_states = [
+        AddPromoCodeStates.waiting_code,
+        AddPromoCodeStates.waiting_discount,
+        AddPromoCodeStates.waiting_max_uses,
+        AddPromoCodeStates.waiting_allow_reuse,
+        EditPromoCodeStates.waiting_code,
+        EditPromoCodeStates.waiting_discount,
+        EditPromoCodeStates.waiting_max_uses,
+    ]
+    
+    # Если состояние не связано с промокодами, пропускаем обработку
+    if current_state not in [str(s) for s in promocode_states]:
+        return
+    
+    # Обрабатываем отмену для состояний промокодов
+    from utils.message_utils import safe_callback_answer
+    await safe_callback_answer(callback)
+    await state.clear()
+    await safe_edit_text(
+        callback.message,
+        "❌ Операция отменена",
+        reply_markup=promocodes_menu()
+    )
+
+
 @router.message(F.text == "❌ Отмена", AdminFilter())
 async def cancel_message_handler(message: types.Message, state: FSMContext):
-    """Обработчик кнопки отмены для всех состояний"""
+    """Обработчик кнопки отмены для сообщений"""
+    current_state = await state.get_state()
+    
+    # Проверяем, что мы находимся в состоянии, связанном с промокодами
+    promocode_states = [
+        AddPromoCodeStates.waiting_code,
+        AddPromoCodeStates.waiting_discount,
+        AddPromoCodeStates.waiting_max_uses,
+        AddPromoCodeStates.waiting_allow_reuse,
+        EditPromoCodeStates.waiting_code,
+        EditPromoCodeStates.waiting_discount,
+        EditPromoCodeStates.waiting_max_uses,
+    ]
+    
+    # Если состояние не связано с промокодами, пропускаем обработку
+    if current_state not in [str(s) for s in promocode_states]:
+        return
+    
+    # Обрабатываем отмену для состояний промокодов
     await state.clear()
     try:
         await message.delete()

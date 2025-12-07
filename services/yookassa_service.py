@@ -2,8 +2,9 @@
 Сервис для работы с YooKassa API
 """
 import uuid
+import json
 from typing import Optional, Dict
-from yookassa import Configuration, Payment
+from yookassa import Configuration, Payment, Refund
 from core.config import config
 import logging
 
@@ -15,43 +16,12 @@ class YooKassaService:
     
     def __init__(self):
         """Инициализация YooKassa с настройками из конфига"""
-        # ДИАГНОСТИКА: Проверяем, что реально приходит из config
-        import os
-        from dotenv import load_dotenv
+        # Читаем настройки из config
+        shop_id_str = str(config.YOOKASSA_SHOP_ID).strip() if config.YOOKASSA_SHOP_ID else ""
+        secret_key = str(config.YOOKASSA_SECRET_KEY).strip() if config.YOOKASSA_SECRET_KEY else ""
         
-        # Перезагружаем .env файл напрямую
-        load_dotenv(override=True)
-        
-        # Читаем напрямую из окружения
-        env_shop_id = os.getenv("YOOKASSA_SHOP_ID", "")
-        env_secret_key = os.getenv("YOOKASSA_SECRET_KEY", "")
-        
-        print("=" * 80)
-        print("🔍 ДИАГНОСТИКА ЧТЕНИЯ .env ФАЙЛА")
-        print("=" * 80)
-        print(f"📁 Чтение напрямую из os.getenv:")
-        print(f"   YOOKASSA_SHOP_ID = '{env_shop_id}' (длина: {len(env_shop_id)})")
-        print(f"   YOOKASSA_SECRET_KEY = '{env_secret_key}' (длина: {len(env_secret_key)})")
-        print(f"")
-        print(f"📁 Чтение из config:")
-        print(f"   config.YOOKASSA_SHOP_ID = '{config.YOOKASSA_SHOP_ID}' (тип: {type(config.YOOKASSA_SHOP_ID).__name__})")
-        print(f"   config.YOOKASSA_SECRET_KEY = '{config.YOOKASSA_SECRET_KEY}' (тип: {type(config.YOOKASSA_SECRET_KEY).__name__})")
-        print("=" * 80)
-        
-        # Используем значения напрямую из окружения, если они есть
-        if env_shop_id and env_shop_id != "your_shop_id":
-            shop_id_str = str(env_shop_id).strip()
-            print(f"✅ Используем shop_id из os.getenv: '{shop_id_str}'")
-        else:
-            shop_id_str = str(config.YOOKASSA_SHOP_ID).strip() if config.YOOKASSA_SHOP_ID else ""
-            print(f"⚠️ Используем shop_id из config: '{shop_id_str}'")
-        
-        if env_secret_key and env_secret_key != "your_secret_key":
-            secret_key = str(env_secret_key).strip()
-            print(f"✅ Используем secret_key из os.getenv: '{secret_key[:20]}...' (длина: {len(secret_key)})")
-        else:
-            secret_key = str(config.YOOKASSA_SECRET_KEY).strip() if config.YOOKASSA_SECRET_KEY else ""
-            print(f"⚠️ Используем secret_key из config: '{secret_key[:20] if secret_key else ''}...' (длина: {len(secret_key)})")
+        if config.TEST_MODE:
+            logger.debug(f"YooKassa init: shop_id={shop_id_str[:10]}..., secret_key length={len(secret_key)}")
         
         # Проверяем только, что значения не пустые
         if not shop_id_str or shop_id_str == "your_shop_id":
@@ -82,7 +52,8 @@ class YooKassaService:
         if secret_key.startswith("TEST:"):
             # Убираем префикс TEST: если есть
             secret_key = secret_key[5:].strip()
-            logger.warning("Обнаружен префикс TEST: в secret_key, он был удален")
+            if config.TEST_MODE:
+                logger.warning("TEST: prefix removed from secret_key")
         elif secret_key.startswith("test_"):
             # Оставляем как есть - это правильный формат для тестовых ключей
             pass
@@ -91,11 +62,9 @@ class YooKassaService:
         Configuration.account_id = shop_id  # account_id должен быть числом
         Configuration.secret_key = secret_key
         
-        # Логируем информацию (без полного ключа для безопасности)
-        logger.info(f"YooKassa инициализирован:")
-        logger.info(f"  shop_id={shop_id} (тип: {type(shop_id).__name__})")
-        logger.info(f"  secret_key начинается с: {secret_key[:10]}... (длина: {len(secret_key)})")
-        logger.info(f"  test_mode={config.TEST_MODE}")
+        # Логируем только в test_mode
+        if config.TEST_MODE:
+            logger.info(f"YooKassa init: shop_id={shop_id}, test_mode=True")
         
         # Сохраняем очищенные значения для использования
         self.shop_id = shop_id  # Сохраняем как число
@@ -115,7 +84,10 @@ class YooKassaService:
         amount: float,
         description: str,
         user_id: str,
-        return_url: Optional[str] = None
+        return_url: Optional[str] = None,
+        customer_email: Optional[str] = None,
+        customer_phone: Optional[str] = None,
+        receipt_item_description: Optional[str] = None
     ) -> Dict:
         """
         Создать платеж в YooKassa
@@ -125,9 +97,16 @@ class YooKassaService:
             description: Описание платежа
             user_id: ID пользователя (для идентификации)
             return_url: URL для возврата после оплаты (опционально)
+            customer_email: Email покупателя для чека (опционально)
+            customer_phone: Телефон покупателя для чека в формате ITU-T E.164 (опционально)
+            receipt_item_description: Описание товара для чека (опционально, используется description если не указано)
         
         Returns:
             Dict с данными платежа (id, confirmation_url и т.д.)
+        
+        Note:
+            Если указаны customer_email или customer_phone, автоматически создается чек
+            для самозанятых согласно документации YooKassa.
         """
         # Убеждаемся, что Configuration правильно настроен
         self._ensure_config()
@@ -171,52 +150,132 @@ class YooKassaService:
             }
         }
         
+        # Добавляем информацию о чеке (обязательно для всех платежей в России согласно 54-ФЗ)
+        # Сохраняем оригинальные данные без receipt для fallback
+        payment_data_with_receipt = payment_data.copy()
+        receipt_added = False
+        
+        try:
+            # Всегда создаем receipt с товарами (обязательно для YooKassa)
+            receipt = {
+                "items": [
+                    {
+                        "description": (receipt_item_description or description)[:128],  # Максимум 128 символов
+                        "quantity": "1.00",
+                        "amount": {
+                            "value": f"{amount:.2f}",
+                            "currency": "RUB"
+                        },
+                        "vat_code": 1  # НДС не облагается (для самозанятых)
+                    }
+                ],
+                "tax_system_code": 1  # Общая система налогообложения
+            }
+            
+            # Добавляем данные покупателя (обязательно для receipt в YooKassa)
+            # Если email не валидный, используем его как Telegram username и форматируем как email
+            customer_data_added = False
+            receipt["customer"] = {}
+            
+            # Обработка email покупателя
+            if customer_email:
+                email = customer_email.strip()
+                # Простая валидация email: должен содержать @ и точку после @
+                if "@" in email and "." in email.split("@")[1] and len(email.split("@")[0]) > 0:
+                    # Валидный email
+                    receipt["customer"]["email"] = email
+                    customer_data_added = True
+                    if config.TEST_MODE:
+                        logger.debug(f"Receipt email: {email}")
+                else:
+                    # Невалидный email - используем как Telegram username и форматируем как валидный email
+                    username = email.replace("@", "").replace(" ", "_").replace(".", "_")[:64]
+                    formatted_email = f"{username}@telegram.local"
+                    receipt["customer"]["email"] = formatted_email
+                    customer_data_added = True
+                    if config.TEST_MODE:
+                        logger.debug(f"Receipt email formatted: {formatted_email}")
+            
+            # Обработка телефона покупателя (если указан)
+            if customer_phone:
+                # Форматируем телефон в формат ITU-T E.164 если нужно
+                phone = customer_phone.strip()
+                if not phone.startswith("+"):
+                    # Если телефон начинается с 8, заменяем на +7
+                    if phone.startswith("8"):
+                        phone = "+7" + phone[1:]
+                    elif phone.startswith("7"):
+                        phone = "+" + phone
+                    else:
+                        phone = "+7" + phone
+                
+                # Простая валидация телефона: должен начинаться с + и содержать только цифры после +
+                if phone.startswith("+") and phone[1:].replace(" ", "").isdigit() and len(phone.replace(" ", "")) >= 10:
+                    receipt["customer"]["phone"] = phone.replace(" ", "")
+                    customer_data_added = True
+                    if config.TEST_MODE:
+                        logger.debug(f"Receipt phone: {phone.replace(' ', '')}")
+                else:
+                    if config.TEST_MODE:
+                        logger.warning(f"Invalid phone format: {customer_phone}")
+            
+            # Если нет ни email, ни phone, используем дефолтный email на основе user_id
+            if not customer_data_added:
+                default_email = f"user_{user_id}@telegram.local"
+                receipt["customer"]["email"] = default_email
+                customer_data_added = True
+                if config.TEST_MODE:
+                    logger.debug(f"Receipt default email: {default_email}")
+            
+            # Всегда добавляем receipt (обязательно для YooKassa)
+            payment_data_with_receipt["receipt"] = receipt
+            receipt_added = True
+        except Exception as receipt_error:
+            logger.error(f"Receipt creation error: {receipt_error}")
+            # Receipt обязателен, поэтому пробуем создать минимальный вариант
+            try:
+                receipt = {
+                    "items": [
+                        {
+                            "description": (receipt_item_description or description)[:128],
+                            "quantity": "1.00",
+                            "amount": {
+                                "value": f"{amount:.2f}",
+                                "currency": "RUB"
+                            },
+                            "vat_code": 1
+                        }
+                    ],
+                    "tax_system_code": 1
+                }
+                payment_data_with_receipt["receipt"] = receipt
+                receipt_added = True
+                if config.TEST_MODE:
+                    logger.warning(f"Minimal receipt created after error")
+            except Exception as fallback_error:
+                logger.error(f"Failed to create minimal receipt: {fallback_error}")
+                receipt_added = False
+        
         try:
             # Убеждаемся, что Configuration установлен перед каждым запросом
             # Явно преобразуем shop_id в int, чтобы гарантировать правильный тип
             Configuration.account_id = int(self.shop_id) if isinstance(self.shop_id, str) else self.shop_id
             Configuration.secret_key = self.secret_key
             
-            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ДЛЯ ДЕБАГА
-            print("=" * 80)
-            print("🔍 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О ЗАПРОСЕ К YOOKASSA API")
-            print("=" * 80)
-            print(f"📋 Payment data:")
-            print(f"   {payment_data}")
-            print(f"")
-            print(f"🔑 Configuration перед запросом:")
-            print(f"   account_id = {Configuration.account_id} (тип: {type(Configuration.account_id).__name__})")
-            print(f"   secret_key = '{Configuration.secret_key}' (тип: {type(Configuration.secret_key).__name__}, длина: {len(Configuration.secret_key)})")
-            print(f"   secret_key первые 20 символов: '{Configuration.secret_key[:20]}'")
-            print(f"   secret_key последние 10 символов: '{Configuration.secret_key[-10:]}'")
-            print(f"")
-            print(f"🔑 Исходные значения из config:")
-            print(f"   self.shop_id = {self.shop_id} (тип: {type(self.shop_id).__name__})")
-            print(f"   self.secret_key = '{self.secret_key}' (тип: {type(self.secret_key).__name__}, длина: {len(self.secret_key)})")
-            print(f"")
-            print(f"🔑 Значения из config (сырые):")
-            print(f"   config.YOOKASSA_SHOP_ID = '{config.YOOKASSA_SHOP_ID}' (тип: {type(config.YOOKASSA_SHOP_ID).__name__})")
-            print(f"   config.YOOKASSA_SECRET_KEY = '{config.YOOKASSA_SECRET_KEY}' (тип: {type(config.YOOKASSA_SECRET_KEY).__name__}, длина: {len(str(config.YOOKASSA_SECRET_KEY))})")
-            print(f"")
-            print(f"🔑 Idempotence key:")
-            print(f"   {idempotence_key} (тип: {type(idempotence_key).__name__})")
-            print(f"")
-            print(f"📤 Отправка запроса к YooKassa API...")
-            print("=" * 80)
-            
-            logger.info(f"Создание платежа через YooKassa API:")
-            logger.info(f"  amount={amount} RUB")
-            logger.info(f"  description={description[:50]}...")
-            logger.info(f"  Configuration.account_id={Configuration.account_id}")
-            logger.info(f"  Configuration.secret_key (полный для дебага): {Configuration.secret_key}")
-            logger.info(f"  idempotence_key={idempotence_key} (тип: {type(idempotence_key).__name__})")
-            logger.debug(f"  payment_data={payment_data}")
+            # Компактное логирование только в test_mode
+            if config.TEST_MODE:
+                logger.info(f"YooKassa payment: amount={amount} RUB, user_id={user_id}")
             
             # Создаем платеж через YooKassa SDK
-            # Согласно документации: Payment.create(payment_data, uuid.uuid4())
-            payment = Payment.create(payment_data, idempotence_key)
+            # Receipt обязателен для всех платежей в России (54-ФЗ)
+            if not receipt_added:
+                raise ValueError("Не удалось создать receipt - это обязательное поле для платежей в России")
             
-            logger.info(f"Платеж создан успешно: id={payment.id}, status={payment.status}")
+            # Всегда используем payment_data_with_receipt
+            payment = Payment.create(payment_data_with_receipt, idempotence_key)
+            
+            if config.TEST_MODE:
+                logger.info(f"YooKassa payment created: id={payment.id}, status={payment.status}")
             
             # Формируем ответ
             result = {
@@ -246,71 +305,22 @@ class YooKassaService:
                 except:
                     pass
             
-            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ОШИБКИ
-            print("=" * 80)
-            print("❌ ОШИБКА ПРИ СОЗДАНИИ ПЛАТЕЖА")
-            print("=" * 80)
-            print(f"Ошибка: {error_msg}")
-            if error_details_text != error_msg:
-                print(f"Детали ошибки: {error_details_text}")
-            print(f"")
-            print(f"📋 Payment data:")
-            print(f"   {payment_data}")
-            print(f"")
-            print(f"🔑 Configuration в момент ошибки:")
-            print(f"   account_id = {Configuration.account_id} (тип: {type(Configuration.account_id).__name__})")
-            print(f"   secret_key = '{Configuration.secret_key}' ({'SET, длина: ' + str(len(Configuration.secret_key)) if Configuration.secret_key else 'NOT SET'})")
-            if Configuration.secret_key:
-                print(f"   secret_key (полный): {Configuration.secret_key}")
-            print(f"")
-            print(f"🔑 Сохраненные значения:")
-            print(f"   self.shop_id = {self.shop_id} (тип: {type(self.shop_id).__name__})")
-            print(f"   self.secret_key = '{self.secret_key}'")
-            print(f"")
-            print(f"🔑 Исходные значения из config:")
-            print(f"   config.YOOKASSA_SHOP_ID = '{config.YOOKASSA_SHOP_ID}'")
-            print(f"   config.YOOKASSA_SECRET_KEY = '{config.YOOKASSA_SECRET_KEY}'")
-            print("=" * 80)
-            
-            logger.error(f"Ошибка при создании платежа в YooKassa: {error_msg}")
-            if error_details_text != error_msg:
-                logger.error(f"Детали ошибки: {error_details_text}")
-            logger.error(f"Payment data: {payment_data}")
-            logger.error(f"Configuration check:")
-            logger.error(f"  account_id={Configuration.account_id} (тип: {type(Configuration.account_id).__name__})")
-            logger.error(f"  secret_key={'set (полный: ' + str(Configuration.secret_key) + ')' if Configuration.secret_key else 'NOT SET'}")
-            logger.error(f"  Используемый shop_id из config: {self.shop_id} (тип: {type(self.shop_id).__name__})")
-            logger.error(f"  Используемый secret_key (полный): {self.secret_key}")
+            # Компактное логирование ошибки
+            logger.error(f"YooKassa payment error: {type(e).__name__}: {error_msg[:200]}")
+            if config.TEST_MODE and error_details_text != error_msg:
+                logger.debug(f"YooKassa error details: {error_details_text[:500]}")
             
             # Формируем понятное сообщение об ошибке
             if "401" in error_msg or "unauthorized" in error_msg.lower() or "authentication" in error_msg.lower():
-                error_details = (
-                    "Ошибка авторизации в платежной системе (401).\n\n"
-                    "Возможные причины:\n"
-                    "1. Неправильный YOOKASSA_SHOP_ID или YOOKASSA_SECRET_KEY\n"
-                    "2. Ключи не соответствуют друг другу (тестовый shop_id с реальным secret_key или наоборот)\n"
-                    "3. Ключи содержат лишние пробелы или символы\n"
-                    "4. Используются неактуальные ключи\n\n"
-                    "Что проверить:\n"
-                    "- Убедитесь, что ключи скопированы полностью из личного кабинета YooKassa\n"
-                    "- Проверьте, что используете правильные ключи (тестовые или реальные)\n"
-                    "- Убедитесь, что shop_id и secret_key соответствуют друг другу\n"
-                    "- Проверьте, нет ли лишних пробелов в начале или конце ключей в .env файле"
-                )
-                logger.error(error_details)
+                error_details = "Ошибка авторизации в платежной системе. Проверьте YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY"
+                if config.TEST_MODE:
+                    logger.error(f"YooKassa auth error: check credentials")
                 raise Exception(error_details)
             elif "400" in error_msg or "invalid" in error_msg.lower() or "validation" in error_msg.lower():
-                # Пытаемся извлечь детали из ответа API
-                detailed_error = error_msg
-                if error_details_text != error_msg:
-                    detailed_error = f"{error_msg}\n\nДетали от YooKassa:\n{error_details_text}"
-                
-                # Проверяем, не связана ли ошибка с account_id
-                if "account_id" in error_details_text.lower() or "shop_id" in error_details_text.lower():
-                    detailed_error += f"\n\n⚠️ Возможная проблема: account_id должен быть числом, а не строкой.\n"
-                    detailed_error += f"Текущий account_id: {Configuration.account_id} (тип: {type(Configuration.account_id).__name__})"
-                
-                raise Exception(f"Некорректные данные платежа (400). Проверьте формат данных:\n{detailed_error}")
+                detailed_error = f"Некорректные данные платежа: {error_msg[:200]}"
+                if config.TEST_MODE and error_details_text != error_msg:
+                    detailed_error += f"\nДетали: {error_details_text[:300]}"
+                raise Exception(detailed_error)
             elif "403" in error_msg or "forbidden" in error_msg.lower():
                 raise Exception("Доступ запрещен (403). Проверьте права доступа API ключей.")
             elif "insufficient" in error_msg.lower() or "balance" in error_msg.lower():
@@ -344,7 +354,8 @@ class YooKassaService:
                 "captured_at": payment.captured_at if hasattr(payment, 'captured_at') else None,
                 "metadata": payment.metadata if hasattr(payment, 'metadata') else {}
             }
-            logger.debug(f"Статус платежа {payment_id}: {payment.status}, paid={status_data['paid']}")
+            if config.TEST_MODE:
+                logger.debug(f"Payment status {payment_id}: {payment.status}, paid={status_data['paid']}")
             return status_data
         except Exception as e:
             error_msg = str(e)
@@ -352,7 +363,8 @@ class YooKassaService:
             
             # Если платеж не найден, возвращаем None
             if "404" in error_msg or "not found" in error_msg.lower():
-                logger.warning(f"Платеж {payment_id} не найден в YooKassa")
+                if config.TEST_MODE:
+                    logger.warning(f"Payment {payment_id} not found in YooKassa")
                 return None
             
             # Для других ошибок логируем и возвращаем None
@@ -373,12 +385,78 @@ class YooKassaService:
         
         try:
             payment = Payment.cancel(payment_id)
-            logger.info(f"Платеж {payment_id} отменен: status={payment.status}")
+            if config.TEST_MODE:
+                logger.info(f"Payment {payment_id} canceled: status={payment.status}")
             return payment.status == "canceled"
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Ошибка при отмене платежа {payment_id}: {error_msg}")
             return False
+    
+    def refund_payment(self, payment_id: str, amount: Optional[float] = None, description: Optional[str] = None) -> Optional[Dict]:
+        """
+        Вернуть средства по платежу (полный или частичный возврат)
+        
+        Args:
+            payment_id: ID платежа в YooKassa
+            amount: Сумма возврата (если None, возвращается полная сумма)
+            description: Описание возврата
+        
+        Returns:
+            Dict с данными возврата или None в случае ошибки
+        """
+        # Убеждаемся, что Configuration правильно настроен
+        self._ensure_config()
+        
+        try:
+            # Получаем информацию о платеже для определения суммы возврата
+            payment = Payment.find_one(payment_id)
+            if not payment:
+                logger.error(f"Платеж {payment_id} не найден для возврата")
+                return None
+            
+            # Если сумма не указана, возвращаем полную сумму платежа
+            if amount is None:
+                amount = float(payment.amount.value) if payment.amount and payment.amount.value else None
+                if amount is None:
+                    logger.error(f"Не удалось определить сумму платежа {payment_id} для возврата")
+                    return None
+            
+            # Формируем данные для возврата
+            refund_data = {
+                "amount": {
+                    "value": f"{amount:.2f}",
+                    "currency": payment.amount.currency if payment.amount else "RUB"
+                },
+                "payment_id": payment_id
+            }
+            
+            if description:
+                refund_data["description"] = description[:128] if len(description) > 128 else description
+            
+            # Генерируем уникальный idempotence_key для предотвращения дублирования возвратов
+            idempotence_key = uuid.uuid4()
+            
+            # Создаем возврат
+            refund = Refund.create(refund_data, idempotence_key)
+            
+            refund_info = {
+                "id": refund.id,
+                "status": refund.status,
+                "amount": float(refund.amount.value) if refund.amount and refund.amount.value else None,
+                "currency": refund.amount.currency if refund.amount else None,
+                "created_at": refund.created_at,
+                "payment_id": payment_id
+            }
+            
+            if config.TEST_MODE:
+                logger.info(f"Refund {payment_id}: refund_id={refund.id}, amount={amount:.2f}, status={refund.status}")
+            return refund_info
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Ошибка при возврате средств по платежу {payment_id}: {error_msg}")
+            return None
 
 
 # Глобальный экземпляр сервиса (создается лениво при первом использовании)

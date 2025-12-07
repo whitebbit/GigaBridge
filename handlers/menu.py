@@ -1,12 +1,14 @@
 from aiogram import F, Router, types
 from aiogram.filters import Command
-from utils.keyboards.main_kb import main_menu, instructions_platform_keyboard, instructions_more_keyboard
-from utils.texts.messages import (
-    INSTRUCTIONS_PC_BASIC,
-    INSTRUCTIONS_PC_MORE,
-    INSTRUCTIONS_MOBILE_BASIC,
-    INSTRUCTIONS_MOBILE_MORE
+from utils.keyboards.main_kb import main_menu
+from utils.db import (
+    get_active_platforms,
+    get_platform_by_id,
+    get_basic_tutorial_for_platform,
+    get_additional_tutorials_for_platform
 )
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from core.loader import bot
 
 router = Router()
 
@@ -34,6 +36,15 @@ async def menu_callback(callback: types.CallbackQuery):
     )
 
 
+def instructions_platform_keyboard(platforms):
+    """Клавиатура выбора платформы для инструкций"""
+    kb = InlineKeyboardBuilder()
+    for platform in platforms:
+        kb.button(text=platform.display_name, callback_data=f"instructions_platform_{platform.id}")
+    kb.adjust(1)
+    return kb.as_markup()
+
+
 @router.message(F.text == "📖 Инструкции")
 async def instructions_handler(message: types.Message):
     """Обработчик кнопки Инструкции - показывает выбор платформы"""
@@ -41,74 +52,187 @@ async def instructions_handler(message: types.Message):
         await message.delete()
     except:
         pass
+    
+    platforms = await get_active_platforms()
+    
+    if not platforms:
+        await message.answer(
+            "📖 <b>Инструкции по использованию</b>\n\n"
+            "❌ Инструкции временно недоступны. Попробуйте позже.",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+        return
+    
     await message.answer(
         "📖 <b>Инструкции по использованию</b>\n\n"
         "Выберите платформу:",
-        reply_markup=instructions_platform_keyboard(),
+        reply_markup=instructions_platform_keyboard(platforms),
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data == "instructions_pc")
-async def instructions_pc_callback(callback: types.CallbackQuery):
-    """Инструкция для ПК"""
-    from utils.message_utils import callback_answer_and_save
-    await callback_answer_and_save(
-        callback,
-        INSTRUCTIONS_PC_BASIC,
-        reply_markup=instructions_more_keyboard("pc"),
-        parse_mode="HTML"
-    )
+async def send_tutorial_with_media(tutorial, chat_id: int, reply_markup=None):
+    """Отправить туториал с видео и файлами"""
+    text = tutorial.text or "📖 Инструкция"
+    last_message = None
     
-    # Отправляем сообщение с кнопками главного меню после inline-сообщения
-    from core.loader import bot
-    await bot.send_message(
-        chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
-        reply_markup=main_menu()
-    )
-
-
-@router.callback_query(F.data == "instructions_mobile")
-async def instructions_mobile_callback(callback: types.CallbackQuery):
-    """Инструкция для телефонов"""
-    from utils.message_utils import callback_answer_and_save
-    await callback_answer_and_save(
-        callback,
-        INSTRUCTIONS_MOBILE_BASIC,
-        reply_markup=instructions_more_keyboard("mobile"),
-        parse_mode="HTML"
-    )
-    
-    # Отправляем сообщение с кнопками главного меню после inline-сообщения
-    from core.loader import bot
-    await bot.send_message(
-        chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
-        reply_markup=main_menu()
-    )
-
-
-@router.callback_query(F.data.startswith("instructions_more_"))
-async def instructions_more_callback(callback: types.CallbackQuery):
-    """Дополнительная информация для инструкций"""
-    platform = callback.data.split("_")[-1]
-    
-    if platform == "pc":
-        text = INSTRUCTIONS_PC_MORE
-    elif platform == "mobile":
-        text = INSTRUCTIONS_MOBILE_MORE
+    # Отправляем видео, если есть
+    if tutorial.video_file_id:
+        try:
+            last_message = await bot.send_video(
+                chat_id=chat_id,
+                video=tutorial.video_file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            # Если видео не удалось отправить, отправляем текст отдельно
+            last_message = await bot.send_message(
+                chat_id=chat_id, 
+                text=text, 
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+    elif tutorial.video_note_id:
+        try:
+            await bot.send_video_note(
+                chat_id=chat_id,
+                video_note=tutorial.video_note_id
+            )
+            # Отправляем текст отдельно для видеосообщения
+            if text:
+                last_message = await bot.send_message(
+                    chat_id=chat_id, 
+                    text=text, 
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            # Если видеосообщение не удалось отправить, отправляем текст
+            if text:
+                last_message = await bot.send_message(
+                    chat_id=chat_id, 
+                    text=text, 
+                    parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
     else:
-        text = "Информация не найдена"
+        # Отправляем только текст, если нет видео
+        if text:
+            last_message = await bot.send_message(
+                chat_id=chat_id, 
+                text=text, 
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
     
-    from utils.message_utils import callback_answer_and_save
-    await callback_answer_and_save(callback, text, parse_mode="HTML")
+    # Отправляем файлы
+    from utils.db import get_tutorial_files
+    files = await get_tutorial_files(tutorial.id)
+    for file in files:
+        try:
+            await bot.send_document(
+                chat_id=chat_id,
+                document=file.file_id,
+                caption=file.description if file.description else None
+            )
+        except Exception as e:
+            # Пропускаем файл, если не удалось отправить
+            pass
+    
+    return last_message
+
+
+@router.callback_query(F.data.startswith("instructions_platform_"))
+async def instructions_platform_callback(callback: types.CallbackQuery):
+    """Инструкция для выбранной платформы"""
+    try:
+        await callback.answer()
+    except:
+        pass
+    
+    platform_id = int(callback.data.split("_")[-1])
+    platform = await get_platform_by_id(platform_id)
+    
+    if not platform:
+        await callback.message.answer(
+            "❌ Платформа не найдена",
+            reply_markup=main_menu()
+        )
+        return
+    
+    # Получаем базовый туториал
+    basic_tutorial = await get_basic_tutorial_for_platform(platform_id)
+    
+    if not basic_tutorial:
+        await callback.message.answer(
+            f"📖 <b>Инструкции для {platform.display_name}</b>\n\n"
+            "❌ Инструкции для этой платформы временно недоступны.",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Проверяем, есть ли дополнительные туториалы
+    additional_tutorials = await get_additional_tutorials_for_platform(platform_id)
+    
+    # Создаем клавиатуру с кнопками для дополнительных туториалов
+    kb = InlineKeyboardBuilder()
+    if additional_tutorials:
+        # Добавляем кнопку для каждого дополнительного туториала
+        for tutorial in additional_tutorials:
+            kb.button(
+                text=f"📗 {tutorial.title[:30]}",
+                callback_data=f"instructions_tutorial_{tutorial.id}"
+            )
+        kb.button(text="🔙 Назад к выбору", callback_data="instructions_back")
+        kb.adjust(1)
+    else:
+        kb.button(text="🔙 Назад к выбору", callback_data="instructions_back")
+        kb.adjust(1)
+    
+    # Отправляем базовый туториал с видео и файлами, прикрепляя клавиатуру к последнему сообщению
+    await send_tutorial_with_media(basic_tutorial, callback.from_user.id, reply_markup=kb.as_markup())
+    
+    # Отправляем сообщение с кнопками главного меню
+    await bot.send_message(
+        chat_id=callback.from_user.id,
+        text="📱 <b>Главное меню</b>",
+        parse_mode="HTML",
+        reply_markup=main_menu()
+    )
+
+
+@router.callback_query(F.data.startswith("instructions_tutorial_"))
+async def instructions_tutorial_callback(callback: types.CallbackQuery):
+    """Отправка конкретного туториала по ID"""
+    try:
+        await callback.answer()
+    except:
+        pass
+    
+    tutorial_id = int(callback.data.split("_")[-1])
+    
+    from utils.db import get_tutorial_by_id
+    tutorial = await get_tutorial_by_id(tutorial_id)
+    
+    if not tutorial:
+        await callback.message.answer(
+            "❌ Туториал не найден",
+            reply_markup=main_menu()
+        )
+        return
+    
+    # Отправляем туториал
+    await send_tutorial_with_media(tutorial, callback.from_user.id)
     
     # Отправляем сообщение с кнопками главного меню после инструкций
-    from core.loader import bot
     await bot.send_message(
         chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
+        text="📱 <b>Главное меню</b>",
+        parse_mode="HTML",
         reply_markup=main_menu()
     )
 
@@ -116,12 +240,28 @@ async def instructions_more_callback(callback: types.CallbackQuery):
 @router.callback_query(F.data == "instructions_back")
 async def instructions_back_callback(callback: types.CallbackQuery):
     """Вернуться к выбору платформы"""
+    try:
+        await callback.answer()
+    except:
+        pass
+    
+    platforms = await get_active_platforms()
+    
+    if not platforms:
+        await callback.message.answer(
+            "📖 <b>Инструкции по использованию</b>\n\n"
+            "❌ Инструкции временно недоступны. Попробуйте позже.",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+        return
+    
     from utils.message_utils import callback_answer_and_save
     await callback_answer_and_save(
         callback,
         "📖 <b>Инструкции по использованию</b>\n\n"
         "Выберите платформу:",
-        reply_markup=instructions_platform_keyboard(),
+        reply_markup=instructions_platform_keyboard(platforms),
         parse_mode="HTML"
     )
 
@@ -135,20 +275,32 @@ async def show_instructions_after_purchase_callback(callback: types.CallbackQuer
     except:
         pass
     
+    platforms = await get_active_platforms()
+    
+    if not platforms:
+        await bot.send_message(
+            chat_id=callback.from_user.id,
+            text="📖 <b>Инструкции по использованию</b>\n\n"
+                 "❌ Инструкции временно недоступны. Попробуйте позже.",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+        return
+    
     # Отправляем новое сообщение с инструкциями, НЕ удаляя старое
-    from core.loader import bot
-    sent_message = await bot.send_message(
+    await bot.send_message(
         chat_id=callback.from_user.id,
         text="📖 <b>Инструкции по использованию</b>\n\n"
              "Выберите платформу:",
-        reply_markup=instructions_platform_keyboard(),
+        reply_markup=instructions_platform_keyboard(platforms),
         parse_mode="HTML"
     )
     
     # Отправляем сообщение с кнопками главного меню после inline-сообщения
     await bot.send_message(
         chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
+        text="📱 <b>Главное меню</b>",
+        parse_mode="HTML",
         reply_markup=main_menu()
     )
 

@@ -2,9 +2,12 @@
 Утилиты для кэширования данных в Redis
 """
 import json
+import logging
 from typing import Optional, Any, List
 from core.storage import redis_client
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 
 class CacheKeys:
@@ -38,7 +41,7 @@ class CacheService:
                 return json.loads(value)
             return None
         except Exception as e:
-            print(f"Ошибка при получении из кэша {key}: {e}")
+            logger.error(f"Ошибка при получении из кэша {key}: {e}")
             return None
     
     @staticmethod
@@ -52,7 +55,7 @@ class CacheService:
             )
             return True
         except Exception as e:
-            print(f"Ошибка при установке в кэш {key}: {e}")
+            logger.error(f"Ошибка при установке в кэш {key}: {e}")
             return False
     
     @staticmethod
@@ -62,7 +65,7 @@ class CacheService:
             await redis_client.delete(key)
             return True
         except Exception as e:
-            print(f"Ошибка при удалении из кэша {key}: {e}")
+            logger.error(f"Ошибка при удалении из кэша {key}: {e}")
             return False
     
     @staticmethod
@@ -74,7 +77,7 @@ class CacheService:
                 return await redis_client.delete(*keys)
             return 0
         except Exception as e:
-            print(f"Ошибка при удалении по паттерну {pattern}: {e}")
+            logger.error(f"Ошибка при удалении по паттерну {pattern}: {e}")
             return 0
     
     @staticmethod

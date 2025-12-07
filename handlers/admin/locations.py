@@ -7,6 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 from utils.filters import AdminFilter
 from utils.keyboards.admin_kb import admin_menu, cancel_keyboard
+from utils.message_utils import safe_callback_answer
 import html
 from utils.db import (
     get_all_locations,
@@ -45,8 +46,9 @@ def location_list_keyboard(locations: list):
     kb = InlineKeyboardBuilder()
     for location in locations:
         status = "✅" if location.is_active else "❌"
+        hidden = "👁️‍🗨️" if location.is_hidden else ""
         kb.button(
-            text=f"{status} {location.name} - {location.price:.0f} ₽",
+            text=f"{status} {hidden} {location.name} - {location.price:.0f} ₽",
             callback_data=f"admin_location_edit_{location.id}"
         )
     kb.button(text="🔙 Назад", callback_data="admin_locations")
@@ -61,9 +63,10 @@ def location_edit_keyboard(location_id: int):
     kb.button(text="💰 Изменить цену", callback_data=f"admin_location_edit_price_{location_id}")
     kb.button(text="📝 Изменить описание", callback_data=f"admin_location_edit_description_{location_id}")
     kb.button(text="🔄 Переключить статус", callback_data=f"admin_location_toggle_{location_id}")
+    kb.button(text="👁️ Переключить видимость", callback_data=f"admin_location_toggle_hidden_{location_id}")
     kb.button(text="🗑️ Удалить локацию", callback_data=f"admin_location_delete_{location_id}")
     kb.button(text="🔙 Назад", callback_data="admin_location_list")
-    kb.adjust(2, 2, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1)
     return kb.as_markup()
 
 
@@ -109,9 +112,10 @@ async def location_list_callback(callback: types.CallbackQuery):
     text = "📋 <b>Список локаций</b>\n\n"
     for location in locations:
         status = "✅ Активна" if location.is_active else "❌ Неактивна"
+        hidden = "👁️‍🗨️ Скрыта" if location.is_hidden else "👁️ Видима"
         servers = await get_servers_by_location(location.id)
         active_servers = [s for s in servers if s.is_active]
-        text += f"{status} <b>{html.escape(location.name)}</b>\n"
+        text += f"{status} | {hidden} <b>{html.escape(location.name)}</b>\n"
         text += f"   💰 Цена: {location.price:.0f} ₽\n"
         text += f"   🖥️ Серверов: {len(active_servers)}/{len(servers)}\n\n"
     
@@ -161,6 +165,7 @@ async def location_add_price(message: types.Message, state: FSMContext):
 async def location_add_description(message: types.Message, state: FSMContext):
     """Ввод описания локации"""
     description = message.text if message.text != "-" else None
+    await state.update_data(description=description)
     data = await state.get_data()
     await state.clear()
     
@@ -186,7 +191,7 @@ async def location_add_description(message: types.Message, state: FSMContext):
         )
 
 
-@router.callback_query(F.data.startswith("admin_location_edit_") & ~F.data.contains("_name_") & ~F.data.contains("_price_") & ~F.data.contains("_description_") & ~F.data.contains("_toggle_") & ~F.data.contains("_delete_"), AdminFilter())
+@router.callback_query(F.data.startswith("admin_location_edit_") & ~F.data.contains("_name_") & ~F.data.contains("_price_") & ~F.data.contains("_description_") & ~F.data.contains("_toggle_") & ~F.data.contains("_toggle_hidden_") & ~F.data.contains("_delete_"), AdminFilter())
 async def location_edit_menu(callback: types.CallbackQuery):
     """Меню редактирования локации"""
     await callback.answer()
@@ -201,10 +206,12 @@ async def location_edit_menu(callback: types.CallbackQuery):
     active_servers = [s for s in servers if s.is_active]
     
     status = "✅ Активна" if location.is_active else "❌ Неактивна"
+    hidden = "👁️‍🗨️ Скрыта" if location.is_hidden else "👁️ Видима"
     text = f"✏️ <b>Редактирование локации</b>\n\n"
     text += f"ID: {location.id}\n"
     text += f"Название: {html.escape(location.name)}\n"
     text += f"Статус: {status}\n"
+    text += f"Видимость: {hidden}\n"
     text += f"Цена: {location.price:.0f} ₽\n"
     if location.description:
         text += f"Описание: {html.escape(location.description)}\n"
@@ -320,7 +327,7 @@ async def location_edit_description(message: types.Message, state: FSMContext):
 
 
 # Переключение статуса
-@router.callback_query(F.data.startswith("admin_location_toggle_"), AdminFilter())
+@router.callback_query(F.data.startswith("admin_location_toggle_") & ~F.data.contains("_hidden_"), AdminFilter())
 async def location_toggle(callback: types.CallbackQuery):
     """Переключение статуса локации"""
     await callback.answer()
@@ -339,6 +346,32 @@ async def location_toggle(callback: types.CallbackQuery):
         await safe_edit_text(
             callback.message,
             f"✅ Локация <b>{html.escape(location.name)}</b> {status_text}",
+            reply_markup=location_edit_keyboard(location_id)
+        )
+    else:
+        await safe_edit_text(callback.message, "❌ Ошибка при обновлении локации", reply_markup=locations_menu())
+
+
+# Переключение статуса скрытости
+@router.callback_query(F.data.startswith("admin_location_toggle_hidden_"), AdminFilter())
+async def location_toggle_hidden(callback: types.CallbackQuery):
+    """Переключение статуса скрытости локации"""
+    await callback.answer()
+    location_id = int(callback.data.split("_")[-1])
+    location = await get_location_by_id(location_id)
+    
+    if not location:
+        await safe_edit_text(callback.message, "❌ Локация не найдена!", reply_markup=locations_menu())
+        return
+    
+    new_hidden_status = not location.is_hidden
+    location = await update_location(location_id, is_hidden=new_hidden_status)
+    
+    if location:
+        hidden_text = "скрыта" if new_hidden_status else "отображена"
+        await safe_edit_text(
+            callback.message,
+            f"✅ Локация <b>{html.escape(location.name)}</b> {hidden_text}",
             reply_markup=location_edit_keyboard(location_id)
         )
     else:
@@ -380,9 +413,59 @@ async def location_delete(callback: types.CallbackQuery):
 
 
 # Обработка отмены (должна быть после всех состояний)
+@router.callback_query(F.data == "cancel", AdminFilter())
+async def cancel_callback_handler(callback: types.CallbackQuery, state: FSMContext):
+    """Обработчик кнопки отмены для callback"""
+    current_state = await state.get_state()
+    
+    # Пропускаем состояния рассылки - они обрабатываются в dashboard.py
+    if current_state and "BroadcastStates" in current_state:
+        return
+    
+    # Проверяем, что мы находимся в состоянии, связанном с локациями
+    location_states = [
+        AddLocationStates.waiting_name,
+        AddLocationStates.waiting_price,
+        AddLocationStates.waiting_description,
+        EditLocationStates.waiting_name,
+        EditLocationStates.waiting_price,
+        EditLocationStates.waiting_description,
+    ]
+    
+    # Если состояние не связано с локациями, пропускаем обработку
+    if current_state not in [str(s) for s in location_states]:
+        return
+    
+    # Обрабатываем отмену для состояний локаций
+    await safe_callback_answer(callback)
+    await state.clear()
+    await safe_edit_text(
+        callback.message,
+        "❌ Операция отменена",
+        reply_markup=locations_menu()
+    )
+
+
 @router.message(F.text == "❌ Отмена", AdminFilter())
 async def cancel_message_handler(message: types.Message, state: FSMContext):
-    """Обработчик кнопки отмены для всех состояний"""
+    """Обработчик кнопки отмены для сообщений"""
+    current_state = await state.get_state()
+    
+    # Проверяем, что мы находимся в состоянии, связанном с локациями
+    location_states = [
+        AddLocationStates.waiting_name,
+        AddLocationStates.waiting_price,
+        AddLocationStates.waiting_description,
+        EditLocationStates.waiting_name,
+        EditLocationStates.waiting_price,
+        EditLocationStates.waiting_description,
+    ]
+    
+    # Если состояние не связано с локациями, пропускаем обработку
+    if current_state not in [str(s) for s in location_states]:
+        return
+    
+    # Обрабатываем отмену для состояний локаций
     await state.clear()
     try:
         await message.delete()

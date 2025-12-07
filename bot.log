@@ -1,0 +1,406 @@
+2025-12-04 12:42:35 | INFO     | Database engine initialized successfully
+2025-12-04 12:42:36 | INFO     | Проверка и применение миграций базы данных...
+2025-12-04 12:42:36 | INFO     | Подключение к базе данных установлено
+2025-12-04 12:42:36 | INFO     | Database engine initialized successfully
+2025-12-04 12:42:37 | INFO     | Миграции применены успешно. Найдено таблиц: 12
+2025-12-04 12:42:37 | INFO     | Bot started
+2025-12-04 12:43:37 | ERROR    | Ошибка при создании клиента в 3x-ui: Не удалось получить список inbounds с сервера
+2025-12-04 12:43:37 | ERROR    | Traceback (most recent call last):
+  File "/app/handlers/buy/payment.py", line 1290, in handle_successful_payment
+    raise Exception("Не удалось получить список inbounds с сервера")
+Exception: Не удалось получить список inbounds с сервера
+
+2025-12-04 12:46:26 | INFO     | Database engine initialized successfully
+2025-12-04 12:46:27 | INFO     | Проверка и применение миграций базы данных...
+2025-12-04 12:46:27 | INFO     | Подключение к базе данных установлено
+2025-12-04 12:46:27 | INFO     | Database engine initialized successfully
+2025-12-04 12:46:28 | INFO     | Миграции применены успешно. Найдено таблиц: 12
+2025-12-04 12:46:28 | INFO     | Bot started
+2025-12-04 12:47:49 | INFO     | VLESS client created: lv@vless&ynchkkkk&66b026
+2025-12-04 12:47:49 | INFO     | Subscription keys received for 1 clients
+2025-12-04 12:55:31 | INFO     | Database engine initialized successfully
+2025-12-04 12:56:03 | INFO     | Database engine initialized successfully
+2025-12-04 12:56:29 | INFO     | Database engine initialized successfully
+2025-12-04 12:59:12 | INFO     | Database engine initialized successfully
+2025-12-04 19:11:30 | INFO     | Database engine initialized successfully
+2025-12-04 19:11:30 | INFO     | Проверка и применение миграций базы данных...
+2025-12-04 19:11:30 | INFO     | Подключение к базе данных установлено
+2025-12-04 19:11:31 | INFO     | Database engine initialized successfully
+2025-12-04 19:11:32 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-04 19:11:32 | INFO     | Bot started
+2025-12-05 10:01:59 | INFO     | Database engine initialized successfully
+2025-12-05 10:02:00 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 10:02:00 | INFO     | Подключение к базе данных установлено
+2025-12-05 10:02:00 | INFO     | Database engine initialized successfully
+2025-12-05 10:02:01 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 10:02:01 | INFO     | Bot started
+2025-12-05 11:13:58 | INFO     | Database engine initialized successfully
+2025-12-05 11:13:59 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 11:13:59 | INFO     | Подключение к базе данных установлено
+2025-12-05 11:13:59 | INFO     | Database engine initialized successfully
+2025-12-05 11:14:00 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 11:14:00 | INFO     | Bot started
+2025-12-05 13:46:03 | INFO     | Database engine initialized successfully
+2025-12-05 13:46:04 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 13:46:04 | INFO     | Подключение к базе данных установлено
+2025-12-05 13:46:05 | INFO     | Database engine initialized successfully
+2025-12-05 13:46:05 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 13:46:06 | INFO     | Bot started
+2025-12-05 13:46:10 | INFO     | Database engine initialized successfully
+2025-12-05 13:46:10 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 13:46:10 | INFO     | Подключение к базе данных установлено
+2025-12-05 13:46:11 | INFO     | Database engine initialized successfully
+2025-12-05 13:46:11 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 13:46:11 | INFO     | Bot started
+2025-12-05 14:50:19 | INFO     | Database engine initialized successfully
+2025-12-05 14:50:20 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 14:50:21 | INFO     | Подключение к базе данных установлено
+2025-12-05 14:50:21 | INFO     | Database engine initialized successfully
+2025-12-05 14:50:22 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 14:50:22 | INFO     | Bot started
+2025-12-05 15:04:35 | INFO     | Database engine initialized successfully
+2025-12-05 15:04:36 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:04:36 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:04:36 | INFO     | Database engine initialized successfully
+2025-12-05 15:04:37 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:04:37 | INFO     | Bot started
+2025-12-05 15:27:07 | INFO     | Database engine initialized successfully
+2025-12-05 15:30:54 | INFO     | Database engine initialized successfully
+2025-12-05 15:31:00 | INFO     | Database engine initialized successfully
+2025-12-05 15:31:00 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:31:00 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:31:01 | INFO     | Database engine initialized successfully
+2025-12-05 15:31:01 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:31:01 | INFO     | Bot started
+2025-12-05 15:35:00 | INFO     | Database engine initialized successfully
+2025-12-05 15:35:05 | INFO     | Database engine initialized successfully
+2025-12-05 15:35:06 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:35:06 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:35:06 | INFO     | Database engine initialized successfully
+2025-12-05 15:35:07 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:35:07 | INFO     | Bot started
+2025-12-05 15:42:24 | INFO     | Database engine initialized successfully
+2025-12-05 15:42:24 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:42:24 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:42:25 | INFO     | Database engine initialized successfully
+2025-12-05 15:42:25 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:42:26 | INFO     | Bot started
+2025-12-05 15:47:53 | INFO     | Database engine initialized successfully
+2025-12-05 15:47:54 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:47:54 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:47:54 | INFO     | Database engine initialized successfully
+2025-12-05 15:47:55 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:47:55 | INFO     | Bot started
+2025-12-05 15:49:17 | INFO     | ✅ Создано клиентов во всех инбаундах: 4/4
+2025-12-05 15:49:17 | INFO     |    - Inbound 1 (vless, network: tcp): lv@tcp&ynchkkkk&87e623&1
+2025-12-05 15:49:17 | INFO     |    - Inbound 2 (vless, network: ws): lv@ws&ynchkkkk&87e623&2
+2025-12-05 15:49:17 | INFO     |    - Inbound 3 (vless, network: xhttp): lv@xhttp&ynchkkkk&87e623&3
+2025-12-05 15:49:17 | INFO     |    - Inbound 4 (trojan, network: grpc): lv@grpc&ynchkkkk&87e623&4
+2025-12-05 15:49:17 | INFO     | Subscription keys received for 4 clients
+2025-12-05 15:50:46 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:51 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:51 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:52 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:50:52 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:50:52 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:53 | ERROR    | Ошибка при применении миграций: [Errno 111] Connect call failed ('172.18.0.2', 5432)
+2025-12-05 15:50:53 | INFO     | Bot started
+2025-12-05 15:50:56 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:56 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:50:56 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:50:56 | INFO     | Database engine initialized successfully
+2025-12-05 15:50:57 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:50:57 | INFO     | Bot started
+2025-12-05 15:52:31 | INFO     | Database engine initialized successfully
+2025-12-05 15:52:32 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:52:32 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:52:32 | INFO     | Database engine initialized successfully
+2025-12-05 15:52:33 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:52:33 | INFO     | Bot started
+2025-12-05 15:52:55 | INFO     | Database engine initialized successfully
+2025-12-05 15:52:56 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 15:52:56 | INFO     | Подключение к базе данных установлено
+2025-12-05 15:52:56 | INFO     | Database engine initialized successfully
+2025-12-05 15:52:57 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 15:52:57 | INFO     | Bot started
+2025-12-05 16:04:26 | INFO     | Database engine initialized successfully
+2025-12-05 16:04:27 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:04:27 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:04:27 | INFO     | Database engine initialized successfully
+2025-12-05 16:04:28 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:04:28 | INFO     | Bot started
+2025-12-05 16:07:07 | INFO     | Database engine initialized successfully
+2025-12-05 16:07:08 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:07:08 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:07:08 | INFO     | Database engine initialized successfully
+2025-12-05 16:07:09 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:07:09 | INFO     | Bot started
+2025-12-05 16:10:00 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:01 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:10:01 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:10:01 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:02 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:10:02 | INFO     | TEST_MODE = True (из переменной окружения: true)
+2025-12-05 16:10:02 | INFO     | Bot started
+2025-12-05 16:10:26 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:26 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:10:26 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:10:27 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:27 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:10:27 | INFO     | TEST_MODE = True (из переменной окружения: true)
+2025-12-05 16:10:27 | INFO     | Bot started
+2025-12-05 16:10:51 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:51 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:10:51 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:10:52 | INFO     | Database engine initialized successfully
+2025-12-05 16:10:52 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:10:52 | INFO     | TEST_MODE = True (из переменной окружения: true)
+2025-12-05 16:10:52 | INFO     | Bot started
+2025-12-05 16:12:03 | INFO     | Database engine initialized successfully
+2025-12-05 16:12:03 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:12:03 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:12:04 | INFO     | Database engine initialized successfully
+2025-12-05 16:12:04 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:12:04 | INFO     | TEST_MODE = True (тип: bool)
+2025-12-05 16:12:04 | INFO     | TEST_MODE из env: 'true' (тип: str)
+2025-12-05 16:12:04 | INFO     | TEST_MODE после обработки: 'true'
+2025-12-05 16:12:04 | INFO     | Bot started
+2025-12-05 16:15:56 | ERROR    | ❌ ОШИБКА: TEST_MODE установлен в переменных окружения: 'false'
+2025-12-05 16:15:56 | ERROR    | ❌ Это ПЕРЕЗАПИСЫВАЕТ значение из .env файла!
+2025-12-05 16:15:56 | ERROR    | ❌ РЕШЕНИЕ:
+2025-12-05 16:15:56 | ERROR    |    1. Удалите TEST_MODE из системных переменных Windows
+2025-12-05 16:15:56 | ERROR    |    2. Или перезапустите Docker контейнер: docker compose down && docker compose up -d
+2025-12-05 16:15:56 | ERROR    |    3. Или установите в docker-compose.yml: environment: TEST_MODE=false
+2025-12-05 16:23:22 | INFO     | Database engine initialized successfully
+2025-12-05 16:23:23 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:23:23 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:23:23 | INFO     | Database engine initialized successfully
+2025-12-05 16:23:24 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:23:24 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-05 16:23:24 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-05 16:23:24 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-05 16:23:24 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-05 16:23:24 | INFO     | Bot started
+2025-12-05 16:24:54 | INFO     | ✅ Создано клиентов во всех инбаундах: 4/4
+2025-12-05 16:24:54 | INFO     |    - Inbound 1 (vless, network: tcp): lv@tcp&ynchkkkk&3a6ab6&1
+2025-12-05 16:24:54 | INFO     |    - Inbound 2 (vless, network: ws): lv@ws&ynchkkkk&3a6ab6&2
+2025-12-05 16:24:54 | INFO     |    - Inbound 3 (vless, network: xhttp): lv@xhttp&ynchkkkk&3a6ab6&3
+2025-12-05 16:24:54 | INFO     |    - Inbound 4 (trojan, network: grpc): lv@grpc&ynchkkkk&3a6ab6&4
+2025-12-05 16:24:55 | INFO     | Subscription keys received for 4 clients
+2025-12-05 16:41:55 | INFO     | Database engine initialized successfully
+2025-12-05 16:41:56 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:41:56 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:41:56 | INFO     | Database engine initialized successfully
+2025-12-05 16:41:57 | ERROR    | Ошибка при применении миграций: INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+/usr/local/lib/python3.11/site-packages/alembic/script/revision.py:214: UserWarning: Revision a1b2c3d4e5f6 is present more than once
+  util.warn(
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 251, in _catch_revision_errors
+    yield
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 459, in _upgrade_revs
+    for script in reversed(list(revs))
+                           ^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 813, in iterate_revisions
+    revisions, heads = fn(
+                       ^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 1438, in _collect_upgrade_revisions
+    for rev in self._parse_upgrade_target(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 1229, in _parse_upgrade_target
+    return self.get_revisions(target)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 545, in get_revisions
+    resolved_id, branch_label = self._resolve_revision_number(id_)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 777, in _resolve_revision_number
+    current_head = self.get_current_head(branch_label)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 509, in get_current_head
+    raise MultipleHeads(
+alembic.script.revision.MultipleHeads: Multiple heads are present for given argument 'head'; add_is_hidden_to_locations, a1b2c3d4e5f6
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/scripts/migrate.py", line 56, in <module>
+    main()
+  File "/app/scripts/migrate.py", line 37, in main
+    command.upgrade(alembic_cfg, revision)
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 403, in upgrade
+    script.run_env()
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 583, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 95, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 113, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/app/database/migrations/env.py", line 94, in <module>
+    asyncio.run(run_migrations_online())
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 85, in run_migrations_online
+    await connection.run_sync(do_run_migrations)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 884, in run_sync
+    return await greenlet_spawn(fn, self._proxied, *arg, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 192, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 69, in do_run_migrations
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/environment.py", line 948, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/migration.py", line 615, in run_migrations
+    for step in self._migrations_fn(heads, self):
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 392, in upgrade
+    return script._upgrade_revs(revision, rev)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 447, in _upgrade_revs
+    with self._catch_revision_errors(
+  File "/usr/local/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 277, in _catch_revision_errors
+    raise util.CommandError(multiple_heads) from mh
+alembic.util.exc.CommandError: Multiple head revisions are present for given argument 'head'; please specify a specific target revision, '<branchname>@head' to narrow to a specific head, or 'heads' for all heads
+
+2025-12-05 16:41:57 | ERROR    | Ошибка при применении миграций: Миграции не применены: INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+/usr/local/lib/python3.11/site-packages/alembic/script/revision.py:214: UserWarning: Revision a1b2c3d4e5f6 is present more than once
+  util.warn(
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 251, in _catch_revision_errors
+    yield
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 459, in _upgrade_revs
+    for script in reversed(list(revs))
+                           ^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 813, in iterate_revisions
+    revisions, heads = fn(
+                       ^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 1438, in _collect_upgrade_revisions
+    for rev in self._parse_upgrade_target(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 1229, in _parse_upgrade_target
+    return self.get_revisions(target)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 545, in get_revisions
+    resolved_id, branch_label = self._resolve_revision_number(id_)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 777, in _resolve_revision_number
+    current_head = self.get_current_head(branch_label)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/revision.py", line 509, in get_current_head
+    raise MultipleHeads(
+alembic.script.revision.MultipleHeads: Multiple heads are present for given argument 'head'; add_is_hidden_to_locations, a1b2c3d4e5f6
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/scripts/migrate.py", line 56, in <module>
+    main()
+  File "/app/scripts/migrate.py", line 37, in main
+    command.upgrade(alembic_cfg, revision)
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 403, in upgrade
+    script.run_env()
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 583, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 95, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 113, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/app/database/migrations/env.py", line 94, in <module>
+    asyncio.run(run_migrations_online())
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 85, in run_migrations_online
+    await connection.run_sync(do_run_migrations)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 884, in run_sync
+    return await greenlet_spawn(fn, self._proxied, *arg, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 192, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 69, in do_run_migrations
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/environment.py", line 948, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/migration.py", line 615, in run_migrations
+    for step in self._migrations_fn(heads, self):
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 392, in upgrade
+    return script._upgrade_revs(revision, rev)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 447, in _upgrade_revs
+    with self._catch_revision_errors(
+  File "/usr/local/lib/python3.11/contextlib.py", line 158, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 277, in _catch_revision_errors
+    raise util.CommandError(multiple_heads) from mh
+alembic.util.exc.CommandError: Multiple head revisions are present for given argument 'head'; please specify a specific target revision, '<branchname>@head' to narrow to a specific head, or 'heads' for all heads
+
+2025-12-05 16:41:57 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-05 16:41:57 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-05 16:41:57 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-05 16:41:57 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-05 16:41:57 | INFO     | Bot started
+2025-12-05 16:42:08 | INFO     | Database engine initialized successfully
+2025-12-05 16:42:49 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:10 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:25 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:46 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:51 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:51 | INFO     | Проверка и применение миграций базы данных...
+2025-12-05 16:43:52 | INFO     | Подключение к базе данных установлено
+2025-12-05 16:43:52 | INFO     | Database engine initialized successfully
+2025-12-05 16:43:52 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-05 16:43:53 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-05 16:43:53 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-05 16:43:53 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-05 16:43:53 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-05 16:43:53 | INFO     | Bot started
+2025-12-07 09:00:06 | INFO     | Database engine initialized successfully
+2025-12-07 09:00:07 | INFO     | Проверка и применение миграций базы данных...
+2025-12-07 09:00:07 | INFO     | Подключение к базе данных установлено
+2025-12-07 09:00:08 | INFO     | Database engine initialized successfully
+2025-12-07 09:00:08 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-07 09:00:08 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-07 09:00:08 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-07 09:00:08 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-07 09:00:08 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-07 09:00:08 | INFO     | Bot started
+2025-12-07 09:05:58 | INFO     | Database engine initialized successfully
+2025-12-07 09:06:04 | INFO     | Database engine initialized successfully
+2025-12-07 09:06:04 | INFO     | Проверка и применение миграций базы данных...
+2025-12-07 09:06:04 | INFO     | Подключение к базе данных установлено
+2025-12-07 09:06:05 | INFO     | Database engine initialized successfully
+2025-12-07 09:06:06 | INFO     | Миграции применены успешно. Найдено таблиц: 13
+2025-12-07 09:06:06 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-07 09:06:06 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-07 09:06:06 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-07 09:06:06 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-07 09:06:06 | INFO     | Bot started

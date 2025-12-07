@@ -6,8 +6,11 @@ from utils.keyboards.main_kb import main_menu
 from utils.db import (
     get_user_by_tg_id,
     create_support_ticket,
-    get_user_support_tickets
+    get_user_support_tickets,
+    MAX_MESSAGE_LENGTH,
+    MAX_PHOTO_SIZE_MB
 )
+from core.loader import bot
 from datetime import datetime
 
 router = Router()
@@ -44,7 +47,13 @@ async def support_handler(message: types.Message, state: FSMContext):
         text += f"✅ У вас {len(answered_tickets)} обращений с ответами\n\n"
     
     text += "Опишите вашу проблему или вопрос, и мы обязательно поможем вам!\n\n"
-    text += "Напишите ваше сообщение:"
+    text += "Вы можете отправить:\n"
+    text += "• Текстовое сообщение\n"
+    text += "• Фото с подписью\n\n"
+    text += f"⚠️ <b>Ограничения:</b>\n"
+    text += f"• Длина сообщения: до {MAX_MESSAGE_LENGTH} символов\n"
+    text += f"• Размер изображения: до {MAX_PHOTO_SIZE_MB} МБ\n\n"
+    text += "Напишите ваше сообщение или отправьте фото:"
     
     # Создаем клавиатуру с кнопкой отмены
     kb = InlineKeyboardBuilder()
@@ -57,7 +66,7 @@ async def support_handler(message: types.Message, state: FSMContext):
 
 @router.message(SupportStates.waiting_for_message)
 async def support_message_handler(message: types.Message, state: FSMContext):
-    """Обработчик сообщения в поддержку"""
+    """Обработчик сообщения в поддержку (текст или фото с подписью)"""
     try:
         await message.delete()
     except:
@@ -70,19 +79,73 @@ async def support_message_handler(message: types.Message, state: FSMContext):
         await state.clear()
         return
     
+    # Получаем текст сообщения (из текста или подписи к фото)
+    message_text = ""
+    photo_file_id = None
+    
+    # Проверяем, есть ли фото
+    if message.photo:
+        # Получаем самое большое фото
+        photo = message.photo[-1]
+        photo_file_id = photo.file_id
+        
+        # Проверяем размер файла
+        try:
+            file_info = await bot.get_file(photo_file_id)
+            file_size_mb = file_info.file_size / (1024 * 1024)  # Размер в МБ
+            
+            if file_size_mb > MAX_PHOTO_SIZE_MB:
+                await message.answer(
+                    f"❌ Размер изображения слишком большой ({file_size_mb:.2f} МБ). "
+                    f"Максимальный размер: {MAX_PHOTO_SIZE_MB} МБ.\n\n"
+                    "Пожалуйста, отправьте изображение меньшего размера.",
+                    reply_markup=main_menu()
+                )
+                return
+        except Exception as e:
+            await message.answer(
+                "❌ Ошибка при проверке размера изображения. Попробуйте отправить другое изображение.",
+                reply_markup=main_menu()
+            )
+            return
+        
+        # Получаем текст из подписи к фото
+        message_text = message.caption or ""
+    elif message.text:
+        message_text = message.text
+    else:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение или фото с подписью.",
+            reply_markup=main_menu()
+        )
+        return
+    
     # Проверяем, что сообщение не пустое
-    if not message.text or len(message.text.strip()) < 5:
+    message_text = message_text.strip()
+    if len(message_text) < 5:
         await message.answer(
             "❌ Сообщение слишком короткое. Пожалуйста, опишите проблему подробнее (минимум 5 символов).",
             reply_markup=main_menu()
         )
         return
     
+    # Проверяем максимальную длину сообщения
+    if len(message_text) > MAX_MESSAGE_LENGTH:
+        await message.answer(
+            f"❌ Сообщение слишком длинное ({len(message_text)} символов). "
+            f"Максимальная длина: {MAX_MESSAGE_LENGTH} символов.\n\n"
+            "Пожалуйста, сократите ваше сообщение.",
+            reply_markup=main_menu()
+        )
+        return
+    
     # Создаем тикет
-    ticket = await create_support_ticket(user.id, message.text.strip())
+    ticket = await create_support_ticket(user.id, message_text, photo_file_id=photo_file_id)
     
     text = "✅ <b>Ваше обращение отправлено в поддержку!</b>\n\n"
-    text += f"📝 <b>Ваше сообщение:</b>\n{message.text.strip()}\n\n"
+    text += f"📝 <b>Ваше сообщение:</b>\n{message_text}\n\n"
+    if photo_file_id:
+        text += "📷 <b>Изображение прикреплено</b>\n\n"
     text += f"🆔 <b>Номер обращения:</b> #{ticket.id}\n\n"
     text += "Мы рассмотрим ваше обращение и ответим в ближайшее время."
     

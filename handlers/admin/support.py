@@ -256,11 +256,27 @@ async def admin_support_ticket_detail_callback(callback: types.CallbackQuery):
     # Форматируем дату создания
     created_at = ticket.created_at.strftime("%d.%m.%Y в %H:%M") if ticket.created_at else "Неизвестно"
     
+    # Если есть фото, отправляем его отдельным сообщением
+    if ticket.photo_file_id:
+        try:
+            photo_caption = f"💬 <b>Тикет #{ticket.id}</b> - Изображение от пользователя"
+            await bot.send_photo(
+                chat_id=callback.message.chat.id,
+                photo=ticket.photo_file_id,
+                caption=photo_caption,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"Ошибка при отправке фото: {e}")
+    
     text = f"💬 <b>Тикет #{ticket.id}</b>\n"
     text += "━" * 30 + "\n\n"
     text += f"👤 <b>Пользователь:</b> {html.escape(username)}\n"
     text += f"📅 <b>Создан:</b> {created_at}\n"
-    text += f"📊 <b>Статус:</b> {status_text}\n\n"
+    text += f"📊 <b>Статус:</b> {status_text}\n"
+    if ticket.photo_file_id:
+        text += f"📷 <b>Изображение:</b> Прикреплено\n"
+    text += "\n"
     text += f"📝 <b>Сообщение пользователя:</b>\n"
     text += "─" * 20 + "\n"
     text += f"{html.escape(ticket.message)}\n\n"
@@ -310,6 +326,8 @@ async def admin_support_answer_callback(callback: types.CallbackQuery, state: FS
     await state.set_state(AnswerTicketStates.waiting_answer)
     
     text = f"💬 <b>Ответ на тикет #{ticket_id}</b>\n\n"
+    if ticket.photo_file_id:
+        text += "📷 <b>Изображение:</b> Прикреплено\n\n"
     text += f"📝 <b>Сообщение пользователя:</b>\n{html.escape(ticket.message)}\n\n"
     text += "✍️ <b>Введите ваш ответ:</b>"
     
@@ -370,6 +388,7 @@ async def admin_support_answer_message_handler(message: types.Message, state: FS
     # Сохраняем данные для уведомления
     user = answered_ticket.user
     ticket_message = answered_ticket.message
+    ticket_photo_file_id = answered_ticket.photo_file_id
     admin_response_text = message.text.strip()
     
     # Удаляем тикет из базы данных сразу после получения данных
@@ -389,11 +408,29 @@ async def admin_support_answer_message_handler(message: types.Message, state: FS
             notification_text += f"💬 <b>Ответ поддержки:</b>\n{html.escape(admin_response_text)}\n\n"
             notification_text += "Спасибо за обращение!"
             
-            await bot.send_message(
-                chat_id=int(user.tg_id),
-                text=notification_text,
-                parse_mode="HTML"
-            )
+            # Если было фото, отправляем его вместе с уведомлением
+            if ticket_photo_file_id:
+                try:
+                    await bot.send_photo(
+                        chat_id=int(user.tg_id),
+                        photo=ticket_photo_file_id,
+                        caption=notification_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    # Если не удалось отправить фото, отправляем только текст
+                    print(f"Ошибка при отправке фото в уведомлении: {e}")
+                    await bot.send_message(
+                        chat_id=int(user.tg_id),
+                        text=notification_text,
+                        parse_mode="HTML"
+                    )
+            else:
+                await bot.send_message(
+                    chat_id=int(user.tg_id),
+                    text=notification_text,
+                    parse_mode="HTML"
+                )
         except Exception as e:
             print(f"Ошибка при отправке уведомления пользователю: {e}")
     

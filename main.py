@@ -1,12 +1,14 @@
 import asyncio
 import sys
+import os
 from pathlib import Path
 from core.loader import bot, dp
 from handlers import start, menu
 from handlers.cabinet import profile
 from handlers.cabinet import support as cabinet_support
 from handlers.buy import select_plan, payment
-from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router
+from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router, tutorials_router
+from utils.logger import logger
 
 # Добавляем корневую директорию проекта в PYTHONPATH
 project_root = Path(__file__).parent
@@ -19,7 +21,7 @@ async def apply_migrations():
     from database.base import engine
     from sqlalchemy import text
     
-    print("🔄 Проверка и применение миграций базы данных...")
+    logger.info("Проверка и применение миграций базы данных...")
     
     # Ждем, пока база данных станет доступной
     max_retries = 30
@@ -28,14 +30,14 @@ async def apply_migrations():
         try:
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-            print("✅ Подключение к базе данных установлено")
+            logger.info("Подключение к базе данных установлено")
             break
         except Exception as e:
             retry_count += 1
             if retry_count >= max_retries:
-                print(f"❌ Не удалось подключиться к базе данных после {max_retries} попыток")
+                logger.error(f"Не удалось подключиться к базе данных после {max_retries} попыток: {e}")
                 raise
-            print(f"⏳ Ожидание подключения к базе данных... ({retry_count}/{max_retries})")
+            logger.debug(f"Ожидание подключения к базе данных... ({retry_count}/{max_retries})")
             await asyncio.sleep(2)
     
     # Проверяем, есть ли таблицы в базе данных
@@ -63,8 +65,7 @@ async def apply_migrations():
             cwd=str(project_root)
         )
         if result.returncode != 0:
-            print(f"⚠️  Ошибка при применении миграций:")
-            print(result.stderr)
+            logger.error(f"Ошибка при применении миграций: {result.stderr}")
             raise Exception(f"Миграции не применены: {result.stderr}")
         
         # Проверяем результат
@@ -78,24 +79,17 @@ async def apply_migrations():
             tables_after = result.fetchall()
             
         if len(tables_after) > 0:
-            print(f"✅ Миграции базы данных применены успешно. Найдено таблиц: {len(tables_after)}")
+            logger.info(f"Миграции применены успешно. Найдено таблиц: {len(tables_after)}")
         elif not tables_exist:
-            print("⚠️  Миграции применены, но таблицы не найдены.")
-            print("💡 Возможно, миграция пустая. Создайте новую миграцию:")
-            print("   docker exec -it gigabridge_bot python scripts/migrate.py revision --autogenerate -m 'Initial tables'")
-            print("   docker exec -it gigabridge_bot python scripts/migrate.py upgrade head")
+            logger.warning("Миграции применены, но таблицы не найдены. Возможно, миграция пустая.")
         else:
-            print("✅ Миграции базы данных применены успешно")
+            logger.info("Миграции базы данных применены успешно")
     except Exception as e:
-        print(f"⚠️  Ошибка при применении миграций: {e}")
+        logger.error(f"Ошибка при применении миграций: {e}")
         if "Target database is not up to date" in str(e):
-            print("💡 Попробуйте применить миграции вручную:")
-            print("   docker exec -it gigabridge_bot python scripts/migrate.py upgrade head")
+            logger.warning("Попробуйте применить миграции вручную: docker exec -it gigabridge_bot python scripts/migrate.py upgrade head")
         elif "Can't locate revision" in str(e):
-            print("💡 Возможно, нужно создать начальную миграцию:")
-            print("   docker exec -it gigabridge_bot python scripts/init_db.py")
-        else:
-            print("💡 Проверьте логи выше для деталей")
+            logger.warning("Возможно, нужно создать начальную миграцию: docker exec -it gigabridge_bot python scripts/init_db.py")
 
 async def main():
     # Применяем миграции перед запуском бота
@@ -108,6 +102,14 @@ async def main():
     # Добавляем задачи проверки подписок
     from services.subscription_checker import start_subscription_checker
     start_subscription_checker()
+    
+    # Добавляем задачу обработки повторных попыток создания подписок
+    from services.subscription_retry import start_subscription_retry_handler
+    start_subscription_retry_handler()
+    
+    # Добавляем задачу проверки оплаты серверов
+    from services.server_payment_checker import start_server_payment_checker
+    start_server_payment_checker()
     
     # Патчим методы для автоматического добавления кнопок управления
     from utils.message_utils import patch_bot_methods
@@ -127,9 +129,55 @@ async def main():
     dp.include_router(servers_router)
     dp.include_router(dashboard_router)
     dp.include_router(promocodes_router)
+    dp.include_router(tutorials_router)
     dp.include_router(support_router)
 
-    print("🤖 Bot started...")
+    # Перезагружаем .env файл ПЕРЕД созданием конфига
+    from dotenv import load_dotenv
+    from pathlib import Path
+    
+    env_file = Path(__file__).parent / '.env'
+    if env_file.exists():
+        # Читаем содержимое .env файла для проверки
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                env_content = f.read()
+            test_mode_in_file = None
+            for line in env_content.split('\n'):
+                if line.strip().startswith('TEST_MODE'):
+                    test_mode_in_file = line.strip()
+                    break
+            if test_mode_in_file:
+                logger.info(f"📄 Найдено в .env файле: {test_mode_in_file}")
+            else:
+                logger.warning("⚠️ TEST_MODE не найден в .env файле!")
+        except Exception as e:
+            logger.error(f"Ошибка при чтении .env файла: {e}")
+        
+        # Принудительно перезагружаем .env с перезаписью
+        load_dotenv(env_file, override=True)
+        logger.info(f"✅ Перезагружен .env файл: {env_file}")
+    else:
+        logger.warning(f"⚠️ .env файл не найден: {env_file}")
+    
+    # Теперь перезагружаем конфиг, чтобы он прочитал обновленные переменные
+    from core.config import config
+    config.reload()
+    
+    # Логируем текущее значение TEST_MODE
+    test_mode_env = os.getenv('TEST_MODE', 'не установлено')
+    logger.info(f"🔍 TEST_MODE = {config.TEST_MODE} (тип: {type(config.TEST_MODE).__name__})")
+    logger.info(f"🔍 TEST_MODE из env: '{test_mode_env}' (тип: {type(test_mode_env).__name__})")
+    
+    # Проверяем, что значение правильное
+    if config.TEST_MODE and test_mode_env.lower() not in ('true', '1', 'yes', 'on'):
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: TEST_MODE={config.TEST_MODE}, но в env='{test_mode_env}'")
+        logger.error("❌ Возможно, переменная кэширована. Перезапустите Docker контейнер полностью!")
+    elif not config.TEST_MODE and test_mode_env.lower() in ('true', '1', 'yes', 'on'):
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: TEST_MODE={config.TEST_MODE}, но в env='{test_mode_env}' (должно быть False)")
+        logger.error("❌ Проверьте парсинг в core/config.py")
+    
+    logger.info("Bot started")
     try:
         await dp.start_polling(bot)
     finally:

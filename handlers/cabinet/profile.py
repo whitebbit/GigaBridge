@@ -21,6 +21,10 @@ from core.config import config
 from datetime import datetime, timedelta
 import qrcode
 import io
+import logging
+from services.x3ui_api import get_x3ui_client
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -39,8 +43,17 @@ async def profile_handler(message: types.Message):
         await message.answer("❌ Пользователь не найден. Используйте /start", reply_markup=main_menu())
         return
     
-    # Получаем все подписки пользователя
+    # Логируем вход пользователя в профиль
+    logger.info("=" * 80)
+    logger.info(f"👤 Пользователь зашел в профиль:")
+    logger.info(f"   Telegram ID: {user.tg_id}")
+    logger.info(f"   Username: {user.username}")
+    logger.info(f"   User ID: {user.id}")
+    logger.info(f"   Sub ID: {user.sub_id}")
+    
+    # Получаем все подписки пользователя из БД (с предзагрузкой серверов и локаций)
     subscriptions = await get_user_subscriptions(user.id)
+    logger.info(f"   Подписок в БД: {len(subscriptions)}")
     
     text = "👤 <b>Ваш профиль</b>\n\n"
     
@@ -49,9 +62,11 @@ async def profile_handler(message: types.Message):
         text += "Выберите подписку для просмотра детальной информации:"
         
         # Создаем клавиатуру с кнопками подписок
+        # Серверы и локации уже загружены через joinedload, не нужно делать дополнительные запросы
         kb = InlineKeyboardBuilder()
         for sub in subscriptions:
-            server = await get_server_by_id(sub.server_id)
+            # Используем загруженные данные (server и location уже доступны)
+            server = sub.server if hasattr(sub, 'server') else None
             # Используем название локации вместо названия сервера
             if server and server.location:
                 location_name = server.location.name
@@ -73,7 +88,11 @@ async def profile_handler(message: types.Message):
         # Размещаем кнопки по 2 в ряд
         kb.adjust(2)
         
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        try:
+            await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке сообщения профиля: {type(e).__name__}: {e}")
+            # Не пробрасываем ошибку дальше, чтобы не прерывать работу бота
     else:
         text += "📦 <b>У вас пока нет активных подписок</b>\n\n"
         text += "Приобретите подписку, чтобы начать пользоваться GigaBridge."
@@ -83,7 +102,11 @@ async def profile_handler(message: types.Message):
         kb.button(text="🛒 Приобрести", callback_data="profile_purchase")
         kb.adjust(1)
         
-        await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        try:
+            await message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке сообщения профиля: {type(e).__name__}: {e}")
+            # Не пробрасываем ошибку дальше, чтобы не прерывать работу бота
 
 
 @router.callback_query(F.data.startswith("subscription_detail_"))
@@ -102,7 +125,10 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
             await callback.message.delete()
         except:
             pass
-        await callback.message.answer("❌ Подписка не найдена", reply_markup=main_menu())
+        try:
+            await callback.message.answer("❌ Подписка не найдена", reply_markup=main_menu())
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке сообщения: {type(e).__name__}: {e}")
         return
     
     # Проверяем, что подписка принадлежит пользователю
@@ -112,7 +138,10 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
             await callback.message.delete()
         except:
             pass
-        await callback.message.answer("❌ Доступ запрещен", reply_markup=main_menu())
+        try:
+            await callback.message.answer("❌ Доступ запрещен", reply_markup=main_menu())
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке сообщения: {type(e).__name__}: {e}")
         return
     
     # Получаем информацию о сервере для локации
@@ -142,13 +171,18 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
     
     text = f"📦 <b>{location_name} ({subscription_id}) - {status_emoji} {status_text}</b>\n\n"
     
-    # Ключ (VLESS ссылка)
-    if subscription.x3ui_client_id:
-        text += f"🔑 <b>Ваш ключ:</b>\n"
-        text += f"<code>{subscription.x3ui_client_id}</code>\n\n"
+    # Ссылка на подписку
+    if subscription.sub_id:
+        # Получаем сервер для извлечения IP адреса
+        server = await get_server_by_id(subscription.server_id)
+        if server:
+            from utils.db import generate_subscription_link
+            subscription_link = generate_subscription_link(server, subscription.sub_id)
+            text += f"🔗 <b>Ссылка на подписку:</b>\n"
+            text += f"<code>{subscription_link}</code>\n\n"
     
-    # Время действия
-    if subscription.expire_date:
+    # Время действия (показываем только для подписок с ограниченным сроком, не для бессрочных)
+    if not subscription.is_private and subscription.expire_date:
         from datetime import datetime as dt
         if isinstance(subscription.expire_date, dt):
             # Конвертируем UTC время в локальное время пользователя для отображения
@@ -236,32 +270,44 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
                                 minutes_left = int((time_until_deletion.total_seconds() % 3600) // 60)
                                 text += f"⏰ Осталось: {minutes_left} мин.\n"
     
-    # Генерируем QR-код для ключа (если есть)
+    # Генерируем QR-код для ссылки на подписку (если есть sub_id)
     photo = None
-    if subscription.x3ui_client_id:
+    if subscription.sub_id:
         try:
-            # Генерируем QR-код
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(subscription.x3ui_client_id)
-            qr.make(fit=True)
-            
-            # Создаем изображение
-            img = qr.make_image(fill_color="black", back_color="white")
-            
-            # Конвертируем в bytes
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
-            
-            # Создаем BufferedInputFile для отправки
-            photo = BufferedInputFile(img_byte_arr.read(), filename="qrcode.png")
+            # Получаем сервер для извлечения IP адреса (если еще не получен)
+            if not server:
+                server = await get_server_by_id(subscription.server_id)
+            if server:
+                from utils.db import generate_subscription_link
+                subscription_link = generate_subscription_link(server, subscription.sub_id)
+                
+                import qrcode
+                import io
+                # Генерируем QR-код
+                qr = qrcode.QRCode(version=1, box_size=10, border=5)
+                qr.add_data(subscription_link)
+                qr.make(fit=True)
+                
+                # Создаем изображение
+                img = qr.make_image(fill_color="black", back_color="white")
+                
+                # Конвертируем в bytes
+                img_byte_arr = io.BytesIO()
+                img.save(img_byte_arr, format='PNG')
+                img_byte_arr.seek(0)
+                
+                # Создаем BufferedInputFile для отправки
+                from aiogram.types import BufferedInputFile
+                photo = BufferedInputFile(img_byte_arr.read(), filename="qrcode.png")
         except Exception as e:
             print(f"Ошибка при генерации QR-кода: {e}")
             # Если не удалось сгенерировать, просто не отправляем фото
     
     # Кнопки управления подпиской
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔄 Продлить", callback_data=f"renew_subscription_{subscription.id}")
+    # Не показываем кнопку "Продлить" для приватных подписок (они бессрочные)
+    if not subscription.is_private:
+        kb.button(text="🔄 Продлить", callback_data=f"renew_subscription_{subscription.id}")
     kb.button(text="🔙 Назад к профилю", callback_data="back_to_profile")
     kb.adjust(1)
     
@@ -271,24 +317,37 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
         pass
     
     # Отправляем сообщение с фото (если есть) или без
-    if photo:
-        await callback.message.answer_photo(
-            photo=photo,
-            caption=text,
-            reply_markup=kb.as_markup(),
-            parse_mode="HTML"
-        )
-    else:
-        await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    from core.loader import bot
+    try:
+        if photo:
+            await bot.send_photo(
+                chat_id=callback.from_user.id,
+                photo=photo,
+                caption=text,
+                reply_markup=kb.as_markup(),
+                parse_mode="HTML"
+            )
+        else:
+            await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке деталей подписки: {type(e).__name__}: {e}")
+        # Пытаемся отправить хотя бы текстовое сообщение
+        try:
+            await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        except:
+            pass
     
     # Отправляем сообщение с кнопками главного меню, чтобы они всегда были доступны
     # Это нужно после сообщений с inline-кнопками
-    from core.loader import bot
-    await bot.send_message(
-        chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
-        reply_markup=main_menu()
-    )
+    try:
+        await bot.send_message(
+            chat_id=callback.from_user.id,
+            text="📱 <b>Главное меню</b>",
+            reply_markup=main_menu(),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке главного меню: {type(e).__name__}: {e}")
 
 
 @router.callback_query(F.data == "back_to_profile")
@@ -306,8 +365,14 @@ async def back_to_profile_handler(callback: types.CallbackQuery):
             await callback.message.delete()
         except:
             pass
-        await callback.message.answer("❌ Пользователь не найден. Используйте /start", reply_markup=main_menu())
+        try:
+            await callback.message.answer("❌ Пользователь не найден. Используйте /start", reply_markup=main_menu())
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке сообщения: {type(e).__name__}: {e}")
         return
+    
+    # Логируем возврат к профилю
+    logger.info(f"👤 Пользователь вернулся к профилю (Telegram ID: {user.tg_id}, Sub ID: {user.sub_id})")
     
     # Получаем все подписки пользователя
     subscriptions = await get_user_subscriptions(user.id)
@@ -319,9 +384,11 @@ async def back_to_profile_handler(callback: types.CallbackQuery):
         text += "Выберите подписку для просмотра детальной информации:"
         
         # Создаем клавиатуру с кнопками подписок
+        # Серверы и локации уже загружены через joinedload в get_user_subscriptions
         kb = InlineKeyboardBuilder()
         for sub in subscriptions:
-            server = await get_server_by_id(sub.server_id)
+            # Используем загруженные данные (server и location уже доступны)
+            server = sub.server if hasattr(sub, 'server') else None
             # Используем название локации вместо названия сервера
             if server and server.location:
                 location_name = server.location.name
@@ -356,15 +423,22 @@ async def back_to_profile_handler(callback: types.CallbackQuery):
     except:
         pass
     
-    await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    try:
+        await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке сообщения профиля: {type(e).__name__}: {e}")
     
     # Отправляем сообщение с кнопками главного меню после inline-сообщения
     from core.loader import bot
-    await bot.send_message(
-        chat_id=callback.from_user.id,
-        text=" ",  # Минимальный текст (пробел)
-        reply_markup=main_menu()
-    )
+    try:
+        await bot.send_message(
+            chat_id=callback.from_user.id,
+            text="📱 <b>Главное меню</b>",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке главного меню: {type(e).__name__}: {e}")
 
 
 @router.callback_query(F.data == "profile_purchase")
@@ -553,20 +627,24 @@ async def renew_subscription_handler(callback: types.CallbackQuery, state: FSMCo
     if location.description:
         text += f"📋 {location.description}\n\n"
     
-    text += f"💎 <b>Стоимость продления:</b> {location.price:.0f} ₽\n\n"
+    # В TEST_MODE цена всегда 1 рубль
+    from handlers.buy.payment import get_test_price
+    final_price = get_test_price(location.price)
+    
+    text += f"💎 <b>Стоимость продления:</b> {final_price:.0f} ₽\n\n"
     text += f"✨ После оплаты ваша подписка будет продлена на {duration_text}.\n\n"
     text += "💳 Нажмите кнопку ниже, чтобы перейти к оплате:"
     
     # Сохраняем информацию о цене в state
     await state.update_data(
-        original_price=location.price,
-        final_price=location.price,
+        original_price=get_test_price(location.price),
+        final_price=final_price,
         discount_applied=False,
         discount_percent=0.0
     )
     
     kb = InlineKeyboardBuilder()
-    kb.button(text=f"💳 Оплатить {location.price:.0f} ₽", callback_data=f"pay_renew_{subscription_id}")
+    kb.button(text=f"💳 Оплатить {final_price:.0f} ₽", callback_data=f"pay_renew_{subscription_id}")
     kb.button(text="❌ Отмена", callback_data="cancel_purchase")
     kb.adjust(1)
     

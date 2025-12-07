@@ -31,34 +31,38 @@ async def delete_subscription_completely(subscription_id: int) -> Tuple[bool, st
         if not subscription:
             return False, "Подписка не найдена в базе данных"
         
-        # Удаляем клиента из 3x-ui API, если есть email
-        if subscription.x3ui_client_email and subscription.server_id:
+        # Удаляем всех клиентов с этим subID из 3x-ui API на всех инбаундах
+        if subscription.sub_id and subscription.server_id:
             try:
                 server = await get_server_by_id(subscription.server_id)
                 if server:
                     x3ui_client = get_x3ui_client(
                         server.api_url,
                         server.api_username,
-                        server.api_password
+                        server.api_password,
+                        server.ssl_certificate
                     )
                     
-                    result = await x3ui_client.delete_client(subscription.x3ui_client_email)
+                    # Удаляем всех клиентов с этим subID на всех инбаундах
+                    result = await x3ui_client.delete_all_clients_by_sub_id(subscription.sub_id)
                     await x3ui_client.close()
                     
                     if result and result.get("error"):
                         error_msg = result.get("message", "Неизвестная ошибка")
+                        deleted_count = len(result.get("deleted", []))
                         logger.warning(
-                            f"⚠️ Не удалось удалить клиента {subscription.x3ui_client_email} "
-                            f"из 3x-ui API: {error_msg}. Продолжаем удаление из БД."
+                            f"⚠️ Не удалось удалить всех клиентов с subID {subscription.sub_id} "
+                            f"из 3x-ui API: {error_msg}. Удалено {deleted_count}. Продолжаем удаление из БД."
                         )
                         # Продолжаем удаление из БД даже если не удалось удалить из API
                     else:
+                        deleted_count = len(result.get("deleted", [])) if result else 0
                         logger.info(
-                            f"✅ Клиент {subscription.x3ui_client_email} успешно удален из 3x-ui API"
+                            f"✅ Удалено {deleted_count} клиентов с subID {subscription.sub_id} из 3x-ui API"
                         )
             except Exception as api_error:
                 logger.error(
-                    f"❌ Ошибка при удалении клиента из 3x-ui API: {api_error}. "
+                    f"❌ Ошибка при удалении клиентов из 3x-ui API: {api_error}. "
                     f"Продолжаем удаление из БД."
                 )
                 # Продолжаем удаление из БД даже если не удалось удалить из API

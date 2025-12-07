@@ -110,3 +110,23 @@ docker compose build     # Пересобрать образ
 docker compose up -d     # Запустить
 ```
 
+## Запуск скриптов
+
+### Получение списка inbounds через API
+
+**Получить из БД:**
+```bash
+docker exec -it gigabridge_bot python scripts/get_inbounds.py
+```
+
+**Указать параметры сервера напрямую:**
+```bash
+docker exec -it gigabridge_bot python scripts/get_inbounds.py http://89.169.7.60:30648/rolDT4Th57aiCxNzOi admin ваш_пароль
+```
+
+**Результат:**
+- Скрипт выводит подробные логи с информацией о всех inbounds, их клиентах и настройках
+- **JSON файл автоматически сохраняется** в корне проекта (например: `inbounds_20241201_143022.json`)
+- Файл доступен на вашем ПК через Docker volume (в директории `D:\Yang\GigaBridge\`)
+- Имя файла содержит timestamp для уникальности каждого запуска
+

@@ -4,8 +4,13 @@
 from functools import wraps
 from typing import Callable, Any
 from aiogram.types import Message, CallbackQuery
+from aiogram.exceptions import TelegramNetworkError
+from aiohttp.client_exceptions import ClientConnectorError
 from core.storage import redis_client
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 async def save_bot_message(chat_id: int, user_id: int, message_id: int):
@@ -17,6 +22,39 @@ async def save_bot_message(chat_id: int, user_id: int, message_id: int):
         await redis_client.set(redis_key, str(message_id), ex=86400)  # TTL 24 часа
     except Exception:
         pass
+
+
+async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_alert: bool = False, **kwargs):
+    """
+    Безопасное ответ на callback с обработкой сетевых ошибок
+    
+    Args:
+        callback: CallbackQuery объект
+        text: Текст для ответа (опционально)
+        show_alert: Показать алерт (опционально)
+        **kwargs: Дополнительные параметры для callback.answer()
+    
+    Returns:
+        bool: True если ответ был успешно отправлен, False если произошла ошибка
+    """
+    try:
+        await callback.answer(text=text, show_alert=show_alert, **kwargs)
+        return True
+    except TelegramNetworkError as e:
+        # Логируем сетевую ошибку, но не прерываем выполнение
+        logger.warning(
+            f"Network error while answering callback query: {e}. "
+            f"Callback data: {callback.data if callback.data else 'N/A'}"
+        )
+        return False
+    except Exception as e:
+        # Для других ошибок тоже логируем, но не прерываем
+        logger.error(
+            f"Unexpected error while answering callback query: {e}. "
+            f"Callback data: {callback.data if callback.data else 'N/A'}",
+            exc_info=True
+        )
+        return False
 
 
 def patch_bot_methods():
@@ -33,7 +71,7 @@ def patch_bot_methods():
     original_bot_send_photo = Bot.send_photo
     
     async def patched_message_answer(self: Message, text: str = None, **kwargs) -> Message:
-        """Патченный метод Message.answer() с автоматическим добавлением кнопок управления"""
+        """Патченный метод Message.answer() с автоматическим добавлением кнопок управления и retry логикой"""
         # Проверяем, есть ли reply_markup в kwargs
         reply_markup = kwargs.get('reply_markup')
         
@@ -48,16 +86,43 @@ def patch_bot_methods():
             from utils.keyboards.main_kb import main_menu
             kwargs['reply_markup'] = main_menu()
         
-        # Вызываем оригинальный метод
-        if text is None:
-            result = await original_message_answer(self, **kwargs)
-        else:
-            result = await original_message_answer(self, text, **kwargs)
+        # Retry логика для сетевых ошибок
+        max_retries = 3
+        retry_delay = 2
+        last_error = None
         
-        return result
+        for attempt in range(max_retries):
+            try:
+                # Вызываем оригинальный метод
+                if text is None:
+                    result = await original_message_answer(self, **kwargs)
+                else:
+                    result = await original_message_answer(self, text, **kwargs)
+                return result
+            except (TelegramNetworkError, ClientConnectorError, ConnectionError, TimeoutError, asyncio.TimeoutError) as network_error:
+                last_error = network_error
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"⚠️ Сетевая ошибка при отправке сообщения через message.answer() "
+                        f"(попытка {attempt + 1}/{max_retries}): {type(network_error).__name__}: {network_error}. "
+                        f"Повтор через {retry_delay} сек..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Экспоненциальная задержка
+                else:
+                    logger.error(
+                        f"❌ Не удалось отправить сообщение через message.answer() после {max_retries} попыток: "
+                        f"{type(network_error).__name__}: {network_error}"
+                    )
+                    # Пробрасываем ошибку дальше, чтобы обработчик мог её обработать
+                    raise
+        
+        # Если дошли сюда, значит все попытки исчерпаны
+        if last_error:
+            raise last_error
     
     async def patched_bot_send_message(self: Bot, chat_id, text: str = None, **kwargs):
-        """Патченный метод Bot.send_message() с автоматическим добавлением кнопок управления"""
+        """Патченный метод Bot.send_message() с автоматическим добавлением кнопок управления и retry логикой"""
         # Проверяем, есть ли reply_markup в kwargs
         reply_markup = kwargs.get('reply_markup')
         
@@ -70,14 +135,42 @@ def patch_bot_methods():
             from utils.keyboards.main_kb import main_menu
             kwargs['reply_markup'] = main_menu()
         
-        # Вызываем оригинальный метод
-        if text is None:
-            return await original_bot_send_message(self, chat_id, **kwargs)
-        else:
-            return await original_bot_send_message(self, chat_id, text, **kwargs)
+        # Retry логика для сетевых ошибок
+        max_retries = 3
+        retry_delay = 2
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Вызываем оригинальный метод
+                if text is None:
+                    return await original_bot_send_message(self, chat_id, **kwargs)
+                else:
+                    return await original_bot_send_message(self, chat_id, text, **kwargs)
+            except (TelegramNetworkError, ClientConnectorError, ConnectionError, TimeoutError, asyncio.TimeoutError) as network_error:
+                last_error = network_error
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"⚠️ Сетевая ошибка при отправке сообщения через bot.send_message() "
+                        f"(попытка {attempt + 1}/{max_retries}): {type(network_error).__name__}: {network_error}. "
+                        f"Повтор через {retry_delay} сек..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Экспоненциальная задержка
+                else:
+                    logger.error(
+                        f"❌ Не удалось отправить сообщение через bot.send_message() после {max_retries} попыток: "
+                        f"{type(network_error).__name__}: {network_error}"
+                    )
+                    # Пробрасываем ошибку дальше, чтобы обработчик мог её обработать
+                    raise
+        
+        # Если дошли сюда, значит все попытки исчерпаны
+        if last_error:
+            raise last_error
     
     async def patched_bot_send_photo(self: Bot, chat_id, photo, **kwargs):
-        """Патченный метод Bot.send_photo() с автоматическим добавлением кнопок управления"""
+        """Патченный метод Bot.send_photo() с автоматическим добавлением кнопок управления и retry логикой"""
         # Проверяем, есть ли reply_markup в kwargs
         reply_markup = kwargs.get('reply_markup')
         
@@ -90,8 +183,36 @@ def patch_bot_methods():
             from utils.keyboards.main_kb import main_menu
             kwargs['reply_markup'] = main_menu()
         
-        # Вызываем оригинальный метод
-        return await original_bot_send_photo(self, chat_id, photo, **kwargs)
+        # Retry логика для сетевых ошибок
+        max_retries = 3
+        retry_delay = 2
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Вызываем оригинальный метод
+                return await original_bot_send_photo(self, chat_id, photo, **kwargs)
+            except (TelegramNetworkError, ClientConnectorError, ConnectionError, TimeoutError, asyncio.TimeoutError) as network_error:
+                last_error = network_error
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"⚠️ Сетевая ошибка при отправке фото через bot.send_photo() "
+                        f"(попытка {attempt + 1}/{max_retries}): {type(network_error).__name__}: {network_error}. "
+                        f"Повтор через {retry_delay} сек..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Экспоненциальная задержка
+                else:
+                    logger.error(
+                        f"❌ Не удалось отправить фото через bot.send_photo() после {max_retries} попыток: "
+                        f"{type(network_error).__name__}: {network_error}"
+                    )
+                    # Пробрасываем ошибку дальше, чтобы обработчик мог её обработать
+                    raise
+        
+        # Если дошли сюда, значит все попытки исчерпаны
+        if last_error:
+            raise last_error
     
     # Применяем патчи на уровне классов
     Message.answer = patched_message_answer
@@ -165,17 +286,11 @@ async def callback_answer_and_save(callback: CallbackQuery, text: str = None, **
             )
         
         # Отвечаем на callback
-        try:
-            await callback.answer()
-        except Exception:
-            pass
+        await safe_callback_answer(callback)
         return sent_message
     else:
         # Просто отвечаем на callback без нового сообщения
-        try:
-            await callback.answer()
-        except Exception:
-            pass
+        await safe_callback_answer(callback)
         return None
 
 
