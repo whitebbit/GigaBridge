@@ -63,3 +63,4 @@ Thumbs.db
 # Project specific
 inbounds_*.json
 
+.env
