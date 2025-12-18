@@ -1,5 +1,5 @@
 from database.base import async_session
-from database.models import User, Server, Payment, Subscription, Tariff, Location, PromoCode, PromoCodeUsage, SupportTicket, Platform, Tutorial, TutorialFile
+from database.models import User, Server, Payment, Subscription, Tariff, Location, PromoCode, PromoCodeUsage, SupportTicket, Platform, Tutorial, TutorialFile, AdminDocumentation, AdminDocumentationFile
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional, List
@@ -1218,6 +1218,16 @@ async def update_server_current_users(server_id: int):
         server.current_users = active_count
         server.updated_at = datetime.utcnow()
         await session.commit()
+    
+    # Проверяем загрузку сервера и отправляем уведомления админам при необходимости
+    try:
+        from services.server_load_checker import check_server_load
+        await check_server_load(server_id)
+    except Exception as e:
+        # Логируем ошибку, но не прерываем выполнение
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Ошибка при проверке загрузки сервера {server_id}: {e}")
 
 
 async def get_users_with_active_subscriptions_by_location(location_id: int) -> List[User]:
@@ -1262,6 +1272,26 @@ async def get_users_with_subscriptions_by_server(server_id: int) -> List[User]:
             .distinct()
         )
         return list(result.scalars().all())
+
+
+async def get_subscriptions_by_location(location_id: int) -> List[Subscription]:
+    """Получить все подписки для локации (на всех серверах этой локации)
+    
+    Args:
+        location_id: ID локации
+        
+    Returns:
+        Список всех подписок на серверах в указанной локации (любого статуса)
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(Subscription)
+            .join(Server, Subscription.server_id == Server.id)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
+            .where(Server.location_id == location_id)
+            .order_by(Subscription.created_at.desc())
+        )
+        return list(result.unique().scalars().all())
 
 
 # ==================== ПРОМОКОДЫ ====================
@@ -1810,4 +1840,131 @@ async def get_additional_tutorials_for_platform(platform_id: int) -> List[Tutori
             .order_by(Tutorial.order, Tutorial.id)
         )
         return list(result.unique().scalars().all())
+
+
+# ========== Функции для работы с документацией админов ==========
+
+async def get_all_documentations() -> List[AdminDocumentation]:
+    """Получить все документации"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentation)
+            .order_by(AdminDocumentation.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+
+async def get_documentation_by_id(doc_id: int) -> Optional[AdminDocumentation]:
+    """Получить документацию по ID с загруженными файлами"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentation)
+            .options(selectinload(AdminDocumentation.files))
+            .where(AdminDocumentation.id == doc_id)
+        )
+        return result.unique().scalar_one_or_none()
+
+
+async def create_documentation(
+    title: str,
+    content: str = None,
+    created_by: int = None
+) -> AdminDocumentation:
+    """Создать новую документацию"""
+    async with async_session() as session:
+        doc = AdminDocumentation(
+            title=title,
+            content=content,
+            created_by=created_by
+        )
+        session.add(doc)
+        await session.commit()
+        await session.refresh(doc)
+        return doc
+
+
+async def update_documentation(doc_id: int, **kwargs) -> Optional[AdminDocumentation]:
+    """Обновить данные документации"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentation).where(AdminDocumentation.id == doc_id)
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            return None
+        
+        for key, value in kwargs.items():
+            if hasattr(doc, key):
+                # Разрешаем установку None для очистки полей
+                setattr(doc, key, value)
+        
+        doc.updated_at = datetime.utcnow()
+        await session.commit()
+        await session.refresh(doc)
+        return doc
+
+
+async def delete_documentation(doc_id: int) -> bool:
+    """Удалить документацию (каскадно удалит все файлы)"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentation).where(AdminDocumentation.id == doc_id)
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            return False
+        
+        await session.delete(doc)
+        await session.commit()
+        return True
+
+
+async def get_documentation_files(doc_id: int) -> List[AdminDocumentationFile]:
+    """Получить все файлы документации"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentationFile)
+            .where(AdminDocumentationFile.documentation_id == doc_id)
+            .order_by(AdminDocumentationFile.order, AdminDocumentationFile.id)
+        )
+        return list(result.scalars().all())
+
+
+async def add_documentation_file(
+    documentation_id: int,
+    file_id: str,
+    file_name: str = None,
+    file_type: str = None,
+    description: str = None,
+    order: int = 0
+) -> AdminDocumentationFile:
+    """Добавить файл к документации"""
+    async with async_session() as session:
+        doc_file = AdminDocumentationFile(
+            documentation_id=documentation_id,
+            file_id=file_id,
+            file_name=file_name,
+            file_type=file_type,
+            description=description,
+            order=order
+        )
+        session.add(doc_file)
+        await session.commit()
+        await session.refresh(doc_file)
+        return doc_file
+
+
+async def delete_documentation_file(file_id: int) -> bool:
+    """Удалить файл документации"""
+    async with async_session() as session:
+        result = await session.execute(
+            select(AdminDocumentationFile).where(AdminDocumentationFile.id == file_id)
+        )
+        doc_file = result.scalar_one_or_none()
+        if not doc_file:
+            return False
+        
+        await session.delete(doc_file)
+        await session.commit()
+        return True
 

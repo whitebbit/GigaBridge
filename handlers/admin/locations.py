@@ -15,8 +15,10 @@ from utils.db import (
     create_location,
     update_location,
     delete_location,
-    get_servers_by_location
+    get_servers_by_location,
+    get_subscriptions_by_location
 )
+from services.subscription import delete_all_location_subscriptions_completely
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 router = Router()
@@ -64,9 +66,10 @@ def location_edit_keyboard(location_id: int):
     kb.button(text="📝 Изменить описание", callback_data=f"admin_location_edit_description_{location_id}")
     kb.button(text="🔄 Переключить статус", callback_data=f"admin_location_toggle_{location_id}")
     kb.button(text="👁️ Переключить видимость", callback_data=f"admin_location_toggle_hidden_{location_id}")
+    kb.button(text="🗑️ Удалить все подписки", callback_data=f"admin_location_delete_subscriptions_{location_id}")
     kb.button(text="🗑️ Удалить локацию", callback_data=f"admin_location_delete_{location_id}")
     kb.button(text="🔙 Назад", callback_data="admin_location_list")
-    kb.adjust(2, 2, 1, 1, 1)
+    kb.adjust(2, 2, 1, 1, 1, 1)
     return kb.as_markup()
 
 
@@ -378,8 +381,149 @@ async def location_toggle_hidden(callback: types.CallbackQuery):
         await safe_edit_text(callback.message, "❌ Ошибка при обновлении локации", reply_markup=locations_menu())
 
 
+# Удаление всех подписок локации
+@router.callback_query(F.data.startswith("admin_location_delete_subscriptions_") & ~F.data.contains("_confirm_"), AdminFilter())
+async def location_delete_subscriptions(callback: types.CallbackQuery):
+    """Удаление всех подписок локации с подтверждением"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    await callback.answer()
+    location_id = int(callback.data.split("_")[-1])
+    logger.info(f"🔄 Запрос на удаление подписок локации #{location_id}")
+    
+    location = await get_location_by_id(location_id)
+    
+    if not location:
+        logger.warning(f"❌ Локация #{location_id} не найдена")
+        await safe_edit_text(callback.message, "❌ Локация не найдена!", reply_markup=locations_menu())
+        return
+    
+    # Получаем количество подписок для отображения
+    subscriptions = await get_subscriptions_by_location(location_id)
+    subscription_count = len(subscriptions)
+    logger.info(f"📊 На локации #{location_id} ({location.name}) найдено {subscription_count} подписок")
+    
+    if subscription_count == 0:
+        await safe_edit_text(
+            callback.message,
+            f"ℹ️ На локации <b>{html.escape(location.name)}</b> нет подписок для удаления.",
+            reply_markup=location_edit_keyboard(location_id)
+        )
+        return
+    
+    # Создаем клавиатуру подтверждения
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="✅ Да, удалить все",
+        callback_data=f"admin_location_delete_subscriptions_confirm_{location_id}"
+    )
+    kb.button(text="❌ Отмена", callback_data=f"admin_location_edit_{location_id}")
+    kb.adjust(1)
+    
+    await safe_edit_text(
+        callback.message,
+        f"⚠️ <b>Внимание!</b>\n\n"
+        f"Вы собираетесь удалить <b>все подписки</b> на локации <b>{html.escape(location.name)}</b>.\n\n"
+        f"Найдено подписок: <b>{subscription_count}</b>\n\n"
+        f"Это действие нельзя отменить. Продолжить?",
+        reply_markup=kb.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("admin_location_delete_subscriptions_confirm_"), AdminFilter())
+async def location_delete_subscriptions_confirm(callback: types.CallbackQuery):
+    """Подтверждение удаления всех подписок локации"""
+    await callback.answer()
+    location_id = int(callback.data.split("_")[-1])
+    location = await get_location_by_id(location_id)
+    
+    if not location:
+        await safe_edit_text(callback.message, "❌ Локация не найдена!", reply_markup=locations_menu())
+        return
+    
+    # Получаем подписки для проверки
+    subscriptions = await get_subscriptions_by_location(location_id)
+    subscription_count = len(subscriptions)
+    
+    if subscription_count == 0:
+        await safe_edit_text(
+            callback.message,
+            f"ℹ️ На локации <b>{html.escape(location.name)}</b> нет подписок для удаления.",
+            reply_markup=location_edit_keyboard(location_id)
+        )
+        return
+    
+    # Показываем сообщение о процессе
+    await safe_edit_text(
+        callback.message,
+        f"⏳ Удаление всех подписок на локации <b>{html.escape(location.name)}</b>...\n\n"
+        f"Найдено подписок: <b>{subscription_count}</b>\n"
+        f"Пожалуйста, подождите...",
+        reply_markup=None
+    )
+    
+    # Удаляем все подписки
+    try:
+        success_count, error_count, errors = await delete_all_location_subscriptions_completely(location_id)
+        
+        # Формируем сообщение с результатами
+        if success_count > 0:
+            if error_count == 0:
+                message_text = (
+                    f"✅ <b>Все подписки успешно удалены!</b>\n\n"
+                    f"Локация: <b>{html.escape(location.name)}</b>\n"
+                    f"Удалено подписок: <b>{success_count}</b>"
+                )
+            else:
+                message_text = (
+                    f"⚠️ <b>Удаление завершено</b>\n\n"
+                    f"Локация: <b>{html.escape(location.name)}</b>\n"
+                    f"Успешно удалено из БД: <b>{success_count}</b>\n"
+                    f"Ошибок при удалении из API: <b>{error_count}</b>\n\n"
+                    f"<i>Примечание: Подписки удалены из базы данных, даже если не удалось удалить из API серверов.</i>"
+                )
+                if errors:
+                    error_list = "\n".join(errors[:3])  # Показываем первые 3 ошибки
+                    if len(errors) > 3:
+                        error_list += f"\n... и еще {len(errors) - 3} ошибок"
+                    message_text += f"\n\n<b>Ошибки API:</b>\n{html.escape(error_list)}"
+        else:
+            # Если ничего не удалилось, это странно
+            message_text = (
+                f"❌ <b>Не удалось удалить подписки</b>\n\n"
+                f"Локация: <b>{html.escape(location.name)}</b>\n"
+                f"Найдено подписок: <b>{subscription_count}</b>\n"
+                f"Удалено: <b>0</b>"
+            )
+            if errors:
+                error_list = "\n".join(errors[:5])
+                message_text += f"\n\n<b>Ошибки:</b>\n{html.escape(error_list)}"
+        
+        await safe_edit_text(
+            callback.message,
+            message_text,
+            reply_markup=location_edit_keyboard(location_id)
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ Критическая ошибка при удалении подписок локации #{location_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        await safe_edit_text(
+            callback.message,
+            f"❌ <b>Критическая ошибка при удалении подписок</b>\n\n"
+            f"Локация: <b>{html.escape(location.name)}</b>\n"
+            f"Ошибка: <code>{html.escape(str(e))}</code>\n\n"
+            f"Проверьте логи для подробностей.",
+            reply_markup=location_edit_keyboard(location_id)
+        )
+
+
 # Удаление локации
-@router.callback_query(F.data.startswith("admin_location_delete_"), AdminFilter())
+@router.callback_query(F.data.startswith("admin_location_delete_") & ~F.data.contains("_subscriptions_"), AdminFilter())
 async def location_delete(callback: types.CallbackQuery):
     """Удаление локации"""
     await callback.answer()

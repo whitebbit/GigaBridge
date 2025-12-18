@@ -18,7 +18,7 @@ if config.config_file_name is not None:
 from database.base import Base
 import database.models  # noqa: F401
 # Импортируем все модели для autogenerate
-from database.models import User, Server, Payment, Tariff, Subscription, Location  # noqa: F401
+from database.models import User, Server, Payment, Tariff, Subscription, Location, AdminDocumentation, AdminDocumentationFile  # noqa: F401
 
 # target_metadata = mymodel.Base.metadata
 target_metadata = Base.metadata

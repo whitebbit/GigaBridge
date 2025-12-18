@@ -69,6 +69,9 @@ class X3UIAPI:
                         # Используем правильный подход: создаем контекст с cafile
                         if use_https:
                             ssl_context = ssl.create_default_context(cafile=cert_file_path)
+                            # Отключаем проверку hostname для работы с IP-адресами
+                            # Сертификат может быть выдан для домена, но подключение идет по IP
+                            ssl_context.check_hostname = False
                         else:
                             # Для HTTP тоже создаем контекст с сертификатом (может быть нужен для mTLS)
                             ssl_context = ssl.create_default_context()
@@ -119,119 +122,187 @@ class X3UIAPI:
             self._session = aiohttp.ClientSession(
                 connector=connector,
                 cookie_jar=cookie_jar,
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=60, connect=30),  # Увеличиваем таймауты: общий 60с, подключение 30с
                 # Включаем автоматическое следование редиректам
                 raise_for_status=False  # Не поднимаем исключение автоматически, обрабатываем вручную
             )
         return self._session
     
-    async def login(self) -> bool:
+    async def login(self, max_retries: int = 3) -> bool:
         """
         Выполняет аутентификацию через /login endpoint (как в test.py)
+        С повторными попытками при сетевых ошибках.
+        
+        Args:
+            max_retries: Максимальное количество попыток (по умолчанию 3)
         
         Returns:
             True если успешно, False в противном случае
         """
-        try:
-            session = await self._get_session()
-            login_url = f"{self.api_url}/login"
-            # Используем form-data как в test.py: data=self.data
-            login_data = aiohttp.FormData()
-            login_data.add_field('username', self.username)
-            login_data.add_field('password', self.password)
-            
-            if config.TEST_MODE:
-                logger.debug(f"3x-ui authentication: {login_url}")
-            
+        last_error = None
+        
+        for attempt in range(1, max_retries + 1):
             try:
-                # Разрешаем редиректы и увеличиваем лимит редиректов
-                # ВСЕГДА передаем SSL контекст в запрос, если есть сертификат
-                ssl_for_request = None
-                if self._cert_file_path:
-                    # Используем тот же SSL контекст, что и в сессии
-                    use_https = self.api_url.startswith('https://')
-                    if use_https:
-                        ssl_for_request = ssl.create_default_context(cafile=self._cert_file_path)
-                    else:
-                        # Для HTTP тоже создаем контекст с сертификатом
-                        ssl_for_request = ssl.create_default_context()
-                        ssl_for_request.load_verify_locations(self._cert_file_path)
-                        ssl_for_request.check_hostname = False
-                        ssl_for_request.verify_mode = ssl.CERT_REQUIRED
-                    if config.TEST_MODE:
-                        logger.debug(f"SSL context created: {self._cert_file_path}")
+                session = await self._get_session()
+                login_url = f"{self.api_url}/login"
+                # Используем form-data как в test.py: data=self.data
+                login_data = aiohttp.FormData()
+                login_data.add_field('username', self.username)
+                login_data.add_field('password', self.password)
                 
-                async with session.post(
-                    login_url, 
-                    data=login_data,
-                    allow_redirects=True,  # Разрешаем автоматическое следование редиректам
-                    max_redirects=10,  # Максимальное количество редиректов
-                    ssl=ssl_for_request  # Передаем SSL контекст в запрос
-                ) as response:
-                    # Проверяем статус ответа (200, 201, 302, 307 - все могут быть успешными)
-                    if response.status in [200, 201]:
-                        self._authenticated = True
-                        if config.TEST_MODE:
-                            logger.debug("Authentication successful")
-                        return True
-                    elif response.status in [302, 307, 308]:
-                        # Редирект - это нормально, проверяем cookies
-                        cookies = session.cookie_jar
-                        if cookies:
-                            self._authenticated = True
-                            if config.TEST_MODE:
-                                logger.debug("Authentication successful (redirect)")
-                            return True
+                if attempt > 1:
+                    logger.info(f"🔄 Попытка аутентификации {attempt}/{max_retries}...")
+                elif config.TEST_MODE:
+                    logger.debug(f"3x-ui authentication: {login_url}")
+                
+                try:
+                    # Разрешаем редиректы и увеличиваем лимит редиректов
+                    # ВСЕГДА передаем SSL контекст в запрос, если есть сертификат
+                    ssl_for_request = None
+                    if self._cert_file_path:
+                        # Используем тот же SSL контекст, что и в сессии
+                        use_https = self.api_url.startswith('https://')
+                        if use_https:
+                            ssl_for_request = ssl.create_default_context(cafile=self._cert_file_path)
+                            # Отключаем проверку hostname для работы с IP-адресами
+                            ssl_for_request.check_hostname = False
                         else:
-                            if config.TEST_MODE:
-                                response_text = await response.text()
-                                logger.warning(f"Redirect without cookies: {response.status} - {response_text[:200]}")
-                            # Пробуем считать успешным, если нет ошибки
+                            # Для HTTP тоже создаем контекст с сертификатом
+                            ssl_for_request = ssl.create_default_context()
+                            ssl_for_request.load_verify_locations(self._cert_file_path)
+                            ssl_for_request.check_hostname = False
+                            ssl_for_request.verify_mode = ssl.CERT_REQUIRED
+                        if config.TEST_MODE:
+                            logger.debug(f"SSL context created: {self._cert_file_path}")
+                    
+                    async with session.post(
+                        login_url, 
+                        data=login_data,
+                        allow_redirects=True,  # Разрешаем автоматическое следование редиректам
+                        max_redirects=10,  # Максимальное количество редиректов
+                        ssl=ssl_for_request  # Передаем SSL контекст в запрос
+                    ) as response:
+                        # Проверяем статус ответа (200, 201, 302, 307 - все могут быть успешными)
+                        if response.status in [200, 201]:
                             self._authenticated = True
+                            if attempt > 1:
+                                logger.info(f"✅ Аутентификация успешна после {attempt} попыток")
+                            elif config.TEST_MODE:
+                                logger.debug("Authentication successful")
                             return True
-                    else:
-                        response_text = await response.text()
-                        logger.error(f"Authentication error: {response.status} - {response_text[:500]}")
-                        return False
-            except aiohttp.http_exceptions.BadStatusLine as e:
-                # Обработка некорректного формата HTTP ответа (например, HTTP/0.0)
-                if config.TEST_MODE:
-                    logger.warning(f"Bad HTTP response format: {e}, trying as success")
-                # Пробуем считать успешным, так как это может быть редирект
-                self._authenticated = True
-                return True
-            except aiohttp.http_exceptions.HttpProcessingError as e:
-                # Обработка ошибок обработки HTTP
-                if config.TEST_MODE:
-                    logger.warning(f"HTTP processing error: {e}, trying as success")
-                # Пробуем считать успешным, так как это может быть редирект
-                self._authenticated = True
-                return True
-        except aiohttp.ClientResponseError as e:
-            # Обработка ошибок HTTP ответа
-            if e.status == 0:
-                # Статус 0 обычно означает проблему с парсингом HTTP ответа
-                if config.TEST_MODE:
-                    logger.warning("Status 0 (HTTP parsing issue), trying as success")
-                self._authenticated = True
-                return True
-            elif e.status in [302, 307, 308]:
-                # Редирект - пробуем считать успешным
-                if config.TEST_MODE:
-                    logger.warning("Redirect received, trying as success")
-                self._authenticated = True
-                return True
-            logger.error(f"HTTP error during authentication: {e.status} - {e.message}")
-            return False
-        except aiohttp.ClientError as e:
-            # Обработка ошибок клиента (сеть, таймаут и т.д.)
-            logger.error(f"Client error during authentication: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error during authentication: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return False
+                        elif response.status in [302, 307, 308]:
+                            # Редирект - это нормально, проверяем cookies
+                            cookies = session.cookie_jar
+                            if cookies:
+                                self._authenticated = True
+                                if attempt > 1:
+                                    logger.info(f"✅ Аутентификация успешна после {attempt} попыток (redirect)")
+                                elif config.TEST_MODE:
+                                    logger.debug("Authentication successful (redirect)")
+                                return True
+                            else:
+                                if config.TEST_MODE:
+                                    response_text = await response.text()
+                                    logger.warning(f"Redirect without cookies: {response.status} - {response_text[:200]}")
+                                # Пробуем считать успешным, если нет ошибки
+                                self._authenticated = True
+                                return True
+                        else:
+                            response_text = await response.text()
+                            error_msg = f"Authentication error: {response.status} - {response_text[:500]}"
+                            logger.error(error_msg)
+                            last_error = error_msg
+                            # Для HTTP ошибок не повторяем попытку
+                            if response.status >= 400 and response.status < 500:
+                                return False
+                            # Для серверных ошибок (5xx) повторяем
+                            if attempt < max_retries:
+                                wait_time = 2 ** attempt  # Экспоненциальная задержка: 2, 4, 8 секунд
+                                logger.warning(f"⏳ Повтор через {wait_time} секунд...")
+                                await asyncio.sleep(wait_time)
+                                continue
+                            return False
+                except aiohttp.http_exceptions.BadStatusLine as e:
+                    # Обработка некорректного формата HTTP ответа (например, HTTP/0.0)
+                    if config.TEST_MODE:
+                        logger.warning(f"Bad HTTP response format: {e}, trying as success")
+                    # Пробуем считать успешным, так как это может быть редирект
+                    self._authenticated = True
+                    return True
+                except aiohttp.http_exceptions.HttpProcessingError as e:
+                    # Обработка ошибок обработки HTTP
+                    if config.TEST_MODE:
+                        logger.warning(f"HTTP processing error: {e}, trying as success")
+                    # Пробуем считать успешным, так как это может быть редирект
+                    self._authenticated = True
+                    return True
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Обработка ошибок клиента (сеть, таймаут и т.д.) - повторяем попытку
+                error_msg = str(e)
+                last_error = error_msg
+                logger.warning(f"⚠️ Сетевая ошибка при аутентификации (попытка {attempt}/{max_retries}): {e}")
+                
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt  # Экспоненциальная задержка: 2, 4, 8 секунд
+                    logger.info(f"⏳ Повтор через {wait_time} секунд...")
+                    await asyncio.sleep(wait_time)
+                    # Закрываем сессию перед повторной попыткой
+                    try:
+                        await self.close()
+                    except:
+                        pass
+                    continue
+                else:
+                    logger.error(f"❌ Не удалось аутентифицироваться после {max_retries} попыток: {e}")
+                    return False
+            except aiohttp.ClientResponseError as e:
+                # Обработка ошибок HTTP ответа
+                if e.status == 0:
+                    # Статус 0 обычно означает проблему с парсингом HTTP ответа
+                    if config.TEST_MODE:
+                        logger.warning("Status 0 (HTTP parsing issue), trying as success")
+                    self._authenticated = True
+                    return True
+                elif e.status in [302, 307, 308]:
+                    # Редирект - пробуем считать успешным
+                    if config.TEST_MODE:
+                        logger.warning("Redirect received, trying as success")
+                    self._authenticated = True
+                    return True
+                error_msg = f"HTTP error during authentication: {e.status} - {e.message}"
+                logger.error(error_msg)
+                last_error = error_msg
+                # Для клиентских ошибок (4xx) не повторяем
+                if e.status >= 400 and e.status < 500:
+                    return False
+                # Для серверных ошибок повторяем
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt
+                    logger.warning(f"⏳ Повтор через {wait_time} секунд...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                return False
+            except Exception as e:
+                error_msg = f"Unexpected error during authentication: {e}"
+                logger.error(error_msg)
+                last_error = error_msg
+                import traceback
+                logger.error(traceback.format_exc())
+                # Для неожиданных ошибок тоже повторяем
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt
+                    logger.warning(f"⏳ Повтор через {wait_time} секунд...")
+                    await asyncio.sleep(wait_time)
+                    try:
+                        await self.close()
+                    except:
+                        pass
+                    continue
+                return False
+        
+        # Если все попытки исчерпаны
+        logger.error(f"❌ Аутентификация не удалась после {max_retries} попыток. Последняя ошибка: {last_error}")
+        return False
     
     async def get_inbounds(self) -> Optional[List[Dict[str, Any]]]:
         """
@@ -267,6 +338,8 @@ class X3UIAPI:
             use_https = self.api_url.startswith('https://')
             if use_https:
                 ssl_for_request = ssl.create_default_context(cafile=self._cert_file_path)
+                # Отключаем проверку hostname для работы с IP-адресами
+                ssl_for_request.check_hostname = False
             else:
                 # Для HTTP тоже создаем контекст с сертификатом
                 ssl_for_request = ssl.create_default_context()
@@ -1538,12 +1611,27 @@ class X3UIAPI:
         if not sub_id:
             return {"error": True, "message": "sub_id обязателен", "error_type": "missing_sub_id"}
         
+        # Убеждаемся, что мы аутентифицированы перед получением подписки
+        # Используем 1 попытку для массовых операций (быстрее)
+        if not self._authenticated:
+            login_success = await self.login(max_retries=1)
+            if not login_success:
+                error_msg = f"Не удалось аутентифицироваться на сервере 3x-ui для удаления клиентов с subID {sub_id}"
+                logger.error(f"❌ {error_msg}")
+                return {"error": True, "message": error_msg, "error_type": "authentication_failed"}
+        
         # Получаем всех клиентов с этим subID
         subscription_clients = await self.get_subscription_by_sub_id(sub_id)
         
         if not subscription_clients:
-            logger.warning(f"⚠️ Не найдено клиентов с subID {sub_id}")
-            return {"error": True, "message": f"Не найдено клиентов с subID {sub_id}", "error_type": "not_found"}
+            # Проверяем, была ли это ошибка аутентификации или просто клиенты не найдены
+            if not self._authenticated:
+                error_msg = f"Ошибка аутентификации при поиске клиентов с subID {sub_id}"
+                logger.warning(f"⚠️ {error_msg}")
+                return {"error": True, "message": error_msg, "error_type": "authentication_failed"}
+            else:
+                logger.warning(f"⚠️ Не найдено клиентов с subID {sub_id} (клиенты могли быть уже удалены или подписка не существует)")
+                return {"error": True, "message": f"Не найдено клиентов с subID {sub_id}", "error_type": "not_found"}
         
         results = {
             "deleted": [],
@@ -1551,41 +1639,51 @@ class X3UIAPI:
             "total": len(subscription_clients)
         }
         
-        # Удаляем каждого клиента с задержкой между запросами
-        for idx, client_data in enumerate(subscription_clients):
+        # Удаляем каждого клиента параллельно для ускорения процесса
+        async def delete_single_client(client_data: Dict[str, Any]) -> tuple:
+            """Удаляет одного клиента и возвращает результат"""
             client_email = client_data.get("email")
             if not client_email:
-                continue
-            
-            # Добавляем задержку между удалениями (кроме первого клиента)
-            if idx > 0:
-                delay = 0.5  # 500ms задержка между удалениями
-                await asyncio.sleep(delay)
+                return None, None
             
             try:
                 result = await self.delete_client(client_email)
                 if result and not result.get("error"):
-                    results["deleted"].append(client_email)
                     logger.info(f"✅ Удален клиент {client_email} (subID: {sub_id})")
+                    return client_email, None
                 else:
                     error_msg = result.get("message", "Неизвестная ошибка") if result else "Ошибка удаления"
-                    results["errors"].append(f"{client_email}: {error_msg}")
                     logger.warning(f"⚠️ Не удалось удалить клиента {client_email}: {error_msg}")
+                    return None, f"{client_email}: {error_msg}"
             except asyncio.CancelledError:
-                # При отмене задачи прерываем обработку
-                logger.warning(f"⚠️ Операция удаления клиентов отменена (subID: {sub_id})")
-                results["errors"].append("Операция была отменена")
-                # Закрываем сессию при отмене
-                try:
-                    await self.close()
-                except:
-                    pass
-                raise  # Пробрасываем CancelledError дальше
+                logger.warning(f"⚠️ Операция удаления клиента {client_email} отменена")
+                raise
             except Exception as e:
-                results["errors"].append(f"{client_email}: {str(e)}")
                 logger.error(f"❌ Ошибка при удалении клиента {client_email}: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
+                return None, f"{client_email}: {str(e)}"
+        
+        # Удаляем клиентов параллельно (батчами по 10 для избежания перегрузки)
+        batch_size = 10
+        for batch_start in range(0, len(subscription_clients), batch_size):
+            batch = subscription_clients[batch_start:batch_start + batch_size]
+            batch_results = await asyncio.gather(*[delete_single_client(client_data) for client_data in batch], return_exceptions=True)
+            
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    if isinstance(result, asyncio.CancelledError):
+                        # При отмене задачи прерываем обработку
+                        logger.warning(f"⚠️ Операция удаления клиентов отменена (subID: {sub_id})")
+                        results["errors"].append("Операция была отменена")
+                        try:
+                            await self.close()
+                        except:
+                            pass
+                        raise result
+                    results["errors"].append(f"Исключение: {str(result)}")
+                elif result[0]:  # Успешно удален
+                    results["deleted"].append(result[0])
+                elif result[1]:  # Ошибка
+                    results["errors"].append(result[1])
         
         if results["errors"]:
             results["error"] = True
@@ -2159,7 +2257,7 @@ class X3UIAPI:
             sub_id: SubId подписки
             
         Returns:
-            Список клиентов с информацией о inbound, или None если подписка не найдена
+            Список клиентов с информацией о inbound, или None если подписка не найдена или произошла ошибка аутентификации
         """
         if not sub_id:
             logger.warning("⚠️ SubId не указан")
@@ -2169,7 +2267,7 @@ class X3UIAPI:
         if not self._authenticated:
             login_success = await self.login()
             if not login_success:
-                logger.error("❌ Ошибка аутентификации при получении подписки")
+                logger.error(f"❌ Ошибка аутентификации при получении подписки с subID {sub_id}. Сервер может быть недоступен.")
                 return None
         
         # Нормализуем subId (убираем пробелы, приводим к строке)

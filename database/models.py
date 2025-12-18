@@ -254,6 +254,36 @@ class FailedSubscriptionAttempt(Base):
     subscription = relationship("Subscription")
 
 
+class AdminDocumentation(Base):
+    """Документация для админов"""
+    __tablename__ = "admin_documentation"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)  # Заголовок документации
+    content = Column(Text, nullable=True)  # HTML контент документации
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # ID админа, создавшего документацию
+
+    files = relationship("AdminDocumentationFile", back_populates="documentation", cascade="all, delete-orphan")
+
+
+class AdminDocumentationFile(Base):
+    """Файлы, прикрепленные к документации (видео, картинки, звуки и т.д.)"""
+    __tablename__ = "admin_documentation_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    documentation_id = Column(Integer, ForeignKey("admin_documentation.id"), nullable=False, index=True)
+    file_id = Column(String, nullable=False)  # file_id файла в Telegram
+    file_name = Column(String, nullable=True)  # Имя файла для отображения
+    file_type = Column(String, nullable=False)  # Тип файла (photo, video, audio, document, voice, video_note)
+    description = Column(String, nullable=True)  # Описание файла
+    order = Column(Integer, default=0)  # Порядок отображения
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    documentation = relationship("AdminDocumentation", back_populates="files")
+
+
 # Составные индексы для оптимизации частых запросов
 Index('idx_subscription_user_status', Subscription.user_id, Subscription.status)
 Index('idx_subscription_server_status', Subscription.server_id, Subscription.status)

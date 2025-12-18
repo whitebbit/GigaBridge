@@ -4,7 +4,7 @@
 from functools import wraps
 from typing import Callable, Any
 from aiogram.types import Message, CallbackQuery
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.exceptions import TelegramNetworkError, TelegramBadRequest
 from aiohttp.client_exceptions import ClientConnectorError
 from core.storage import redis_client
 import asyncio
@@ -26,7 +26,7 @@ async def save_bot_message(chat_id: int, user_id: int, message_id: int):
 
 async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_alert: bool = False, **kwargs):
     """
-    Безопасное ответ на callback с обработкой сетевых ошибок
+    Безопасное ответ на callback с обработкой сетевых ошибок и истекших запросов
     
     Args:
         callback: CallbackQuery объект
@@ -40,6 +40,22 @@ async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_a
     try:
         await callback.answer(text=text, show_alert=show_alert, **kwargs)
         return True
+    except TelegramBadRequest as e:
+        # Обрабатываем истекшие callback queries (query is too old) - это нормальная ситуация
+        error_message = str(e).lower()
+        if "query is too old" in error_message or "query id is invalid" in error_message:
+            # Это ожидаемая ситуация - callback query истек (обычно через 1 минуту)
+            logger.debug(
+                f"Callback query expired or invalid (this is normal): {e}. "
+                f"Callback data: {callback.data if callback.data else 'N/A'}"
+            )
+        else:
+            # Другие BadRequest ошибки логируем как предупреждение
+            logger.warning(
+                f"Bad request while answering callback query: {e}. "
+                f"Callback data: {callback.data if callback.data else 'N/A'}"
+            )
+        return False
     except TelegramNetworkError as e:
         # Логируем сетевую ошибку, но не прерываем выполнение
         logger.warning(

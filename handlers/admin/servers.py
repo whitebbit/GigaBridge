@@ -147,6 +147,10 @@ async def server_add_start(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(AddServerStates.waiting_name, AdminFilter())
 async def server_add_name(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с названием сервера:", reply_markup=cancel_keyboard())
+        return
+    
     await state.update_data(name=message.text)
     await message.answer(
         "Введите API URL сервера:",
@@ -157,6 +161,10 @@ async def server_add_name(message: types.Message, state: FSMContext):
 
 @router.message(AddServerStates.waiting_api_url, AdminFilter())
 async def server_add_api_url(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с API URL:", reply_markup=cancel_keyboard())
+        return
+    
     api_url = message.text.strip()
     
     # Используем URL как есть, БЕЗ парсинга (сохраняем WebBasePath)
@@ -172,6 +180,10 @@ async def server_add_api_url(message: types.Message, state: FSMContext):
 
 @router.message(AddServerStates.waiting_api_username, AdminFilter())
 async def server_add_api_username(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с именем пользователя:", reply_markup=cancel_keyboard())
+        return
+    
     await state.update_data(api_username=message.text)
     await message.answer(
         "Введите пароль:",
@@ -182,6 +194,10 @@ async def server_add_api_username(message: types.Message, state: FSMContext):
 
 @router.message(AddServerStates.waiting_api_password, AdminFilter())
 async def server_add_api_password(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с паролем:", reply_markup=cancel_keyboard())
+        return
+    
     await state.update_data(api_password=message.text)
     # Показываем список локаций для выбора
     locations = await get_all_locations()
@@ -221,6 +237,10 @@ async def server_add_location_selected(callback: types.CallbackQuery, state: FSM
 
 @router.message(AddServerStates.waiting_description, AdminFilter())
 async def server_add_description(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение. Введите описание или '-' чтобы пропустить:", reply_markup=cancel_keyboard())
+        return
+    
     description = message.text if message.text != "-" else None
     await state.update_data(description=description)
     await message.answer(
@@ -233,6 +253,10 @@ async def server_add_description(message: types.Message, state: FSMContext):
 @router.message(AddServerStates.waiting_max_users, AdminFilter())
 async def server_add_max_users(message: types.Message, state: FSMContext):
     max_users = None
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение. Введите число или '-' чтобы пропустить:")
+        return
+    
     if message.text != "-":
         try:
             max_users = int(message.text)
@@ -275,6 +299,10 @@ async def server_add_payment_days(message: types.Message, state: FSMContext):
 @router.message(AddServerStates.waiting_sub_url, AdminFilter())
 async def server_add_sub_url(message: types.Message, state: FSMContext):
     sub_url = None
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение. Введите URL или '-' чтобы пропустить:", reply_markup=cancel_keyboard())
+        return
+    
     if message.text != "-":
         sub_url = message.text.strip()
         # Проверяем, что URL заканчивается без слеша (если есть, убираем)
@@ -337,6 +365,10 @@ async def server_edit_name_start(callback: types.CallbackQuery, state: FSMContex
 
 @router.message(EditServerStates.waiting_name, AdminFilter())
 async def server_edit_name(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с названием сервера:", reply_markup=cancel_keyboard())
+        return
+    
     data = await state.get_data()
     server = await update_server(data["server_id"], name=message.text)
     await state.clear()
@@ -425,6 +457,10 @@ async def server_edit_description_start(callback: types.CallbackQuery, state: FS
 
 @router.message(EditServerStates.waiting_description, AdminFilter())
 async def server_edit_description(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение. Введите описание или '-' чтобы удалить:", reply_markup=cancel_keyboard())
+        return
+    
     description = message.text if message.text != "-" else None
     data = await state.get_data()
     server = await update_server(data["server_id"], description=description)
@@ -462,6 +498,10 @@ async def server_edit_api_url_start(callback: types.CallbackQuery, state: FSMCon
 
 @router.message(EditServerStates.waiting_api_url, AdminFilter())
 async def server_edit_api_url(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с API URL:", reply_markup=cancel_keyboard())
+        return
+    
     api_url = message.text.strip()
     
     # Используем URL как есть, БЕЗ парсинга
@@ -503,6 +543,10 @@ async def server_edit_api_username_start(callback: types.CallbackQuery, state: F
 
 @router.message(EditServerStates.waiting_api_username, AdminFilter())
 async def server_edit_api_username(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с именем пользователя:", reply_markup=cancel_keyboard())
+        return
+    
     api_username = message.text.strip()
     data = await state.get_data()
     server = await update_server(data["server_id"], api_username=api_username)
@@ -539,6 +583,10 @@ async def server_edit_api_password_start(callback: types.CallbackQuery, state: F
 
 @router.message(EditServerStates.waiting_api_password, AdminFilter())
 async def server_edit_api_password(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение с паролем:", reply_markup=cancel_keyboard())
+        return
+    
     api_password = message.text.strip()
     data = await state.get_data()
     server = await update_server(data["server_id"], api_password=api_password)
@@ -662,6 +710,14 @@ async def server_edit_ssl_certificate_file(message: types.Message, state: FSMCon
 @router.message(EditServerStates.waiting_ssl_certificate, AdminFilter())
 async def server_edit_ssl_certificate(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    
+    # Проверяем, что сообщение содержит текст
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение или файл сертификата:",
+            reply_markup=cancel_keyboard()
+        )
+        return
     
     # Проверяем, нужно ли подтверждение
     if data.get("need_confirm"):
@@ -823,6 +879,13 @@ async def server_edit_max_users_start(callback: types.CallbackQuery, state: FSMC
 @router.message(EditServerStates.waiting_max_users, AdminFilter())
 async def server_edit_max_users(message: types.Message, state: FSMContext):
     max_users = None
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение. Введите число или '-' чтобы удалить:",
+            reply_markup=cancel_keyboard()
+        )
+        return
+    
     if message.text != "-":
         try:
             max_users = int(message.text)
@@ -881,6 +944,14 @@ async def server_edit_payment_days(message: types.Message, state: FSMContext):
     
     payment_days = None
     payment_expire_date = None
+    
+    # Проверяем, что сообщение содержит текст
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение. Введите число или '-' чтобы удалить:",
+            reply_markup=cancel_keyboard()
+        )
+        return
     
     if message.text != "-":
         try:
@@ -957,6 +1028,13 @@ async def server_edit_sub_url_start(callback: types.CallbackQuery, state: FSMCon
 @router.message(EditServerStates.waiting_sub_url, AdminFilter())
 async def server_edit_sub_url(message: types.Message, state: FSMContext):
     sub_url = None
+    if not message.text:
+        await message.answer(
+            "❌ Пожалуйста, отправьте текстовое сообщение. Введите URL или '-' чтобы удалить:",
+            reply_markup=cancel_keyboard()
+        )
+        return
+    
     if message.text != "-":
         sub_url = message.text.strip()
         # Проверяем, что URL заканчивается без слеша (если есть, убираем)
@@ -1084,6 +1162,10 @@ async def server_notify_users_send(message: types.Message, state: FSMContext):
     if not server:
         await message.answer("❌ Сервер не найден", reply_markup=servers_menu())
         await state.clear()
+        return
+    
+    if not message.text:
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение для уведомления:", reply_markup=cancel_keyboard())
         return
     
     notification_text = message.text

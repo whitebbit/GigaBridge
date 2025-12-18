@@ -12,6 +12,10 @@ services:
     volumes:
       - ./:/app
     command: python main.py
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
 
   db:
     image: postgres:16

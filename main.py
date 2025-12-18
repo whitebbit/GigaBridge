@@ -7,7 +7,7 @@ from handlers import start, menu
 from handlers.cabinet import profile
 from handlers.cabinet import support as cabinet_support
 from handlers.buy import select_plan, payment
-from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router, tutorials_router
+from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router, tutorials_router, documentation_router, backup_router
 from utils.logger import logger
 
 # Добавляем корневую директорию проекта в PYTHONPATH
@@ -111,6 +111,14 @@ async def main():
     from services.server_payment_checker import start_server_payment_checker
     start_server_payment_checker()
     
+    # Добавляем задачу проверки загрузки серверов
+    from services.server_load_checker import start_server_load_checker
+    start_server_load_checker()
+    
+    # Добавляем задачу автоматической отправки бэкапов админам
+    from services.backup_scheduler import start_weekly_backup
+    start_weekly_backup()
+    
     # Патчим методы для автоматического добавления кнопок управления
     from utils.message_utils import patch_bot_methods
     patch_bot_methods()
@@ -130,6 +138,8 @@ async def main():
     dp.include_router(dashboard_router)
     dp.include_router(promocodes_router)
     dp.include_router(tutorials_router)
+    dp.include_router(documentation_router)
+    dp.include_router(backup_router)
     dp.include_router(support_router)
 
     # Перезагружаем .env файл ПЕРЕД созданием конфига

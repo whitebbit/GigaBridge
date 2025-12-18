@@ -36,6 +36,10 @@ async def start_handler(message: types.Message):
     # Отправляем стартовое сообщение с inline-кнопками
     # Кнопки управления (ReplyKeyboardMarkup) будут добавлены автоматически через патч
     await message.answer(START_MESSAGE, reply_markup=start_menu())
+    await message.answer(
+                text="📱 <b>Главное меню</b>",
+                reply_markup=main_menu()
+            )
 
 
 @router.message(Command("grant_unlimited"))
