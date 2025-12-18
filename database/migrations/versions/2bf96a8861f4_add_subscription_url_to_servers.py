@@ -20,18 +20,37 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Добавляем колонку subscription_url, если её ещё нет
-    try:
-        op.add_column('servers', sa.Column('subscription_url', sa.String(), nullable=True))
-    except Exception:
-        # Колонка уже существует, пропускаем
-        pass
+    # Используем условный SQL для проверки и добавления колонки
+    op.execute("""
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'servers' 
+                AND column_name = 'subscription_url'
+                AND table_schema = 'public'
+            ) THEN
+                ALTER TABLE servers ADD COLUMN subscription_url VARCHAR;
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
     # Удаляем колонку subscription_url, если она существует
-    try:
-        op.drop_column('servers', 'subscription_url')
-    except Exception:
-        # Колонка не существует, пропускаем
-        pass
+    op.execute("""
+        DO $$ 
+        BEGIN
+            IF EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'servers' 
+                AND column_name = 'subscription_url'
+                AND table_schema = 'public'
+            ) THEN
+                ALTER TABLE servers DROP COLUMN subscription_url;
+            END IF;
+        END $$;
+    """)
 

@@ -773,3 +773,230 @@ alembic.util.exc.CommandError: Multiple head revisions are present for given arg
 2025-12-18 08:36:03 | INFO     | 🔍 TEST_MODE = False (тип: bool)
 2025-12-18 08:36:03 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
 2025-12-18 08:36:03 | INFO     | Bot started
+2025-12-18 17:41:46 | INFO     | Database engine initialized successfully
+2025-12-18 17:41:47 | INFO     | Проверка и применение миграций базы данных...
+2025-12-18 17:41:47 | INFO     | Подключение к базе данных установлено
+2025-12-18 17:41:47 | INFO     | Database engine initialized successfully
+2025-12-18 17:41:48 | ERROR    | Ошибка при применении миграций: INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 878, in commit
+    self.await_(self._transaction.commit())
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 125, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 185, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/transaction.py", line 219, in commit
+    await self.__commit()
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/transaction.py", line 187, in __commit
+    await self._connection.execute(query)
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 350, in execute
+    result = await self._protocol.query(query, timeout)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 374, in query
+asyncpg.exceptions.ConnectionDoesNotExistError: connection was closed in the middle of operation
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1132, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 694, in do_commit
+    dbapi_connection.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 880, in commit
+    self._handle_exception(error)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 802, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.ConnectionDoesNotExistError'>: connection was closed in the middle of operation
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/scripts/migrate.py", line 56, in <module>
+    main()
+  File "/app/scripts/migrate.py", line 37, in main
+    command.upgrade(alembic_cfg, revision)
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 403, in upgrade
+    script.run_env()
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 583, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 95, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 113, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/app/database/migrations/env.py", line 94, in <module>
+    asyncio.run(run_migrations_online())
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 85, in run_migrations_online
+    await connection.run_sync(do_run_migrations)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 884, in run_sync
+    return await greenlet_spawn(fn, self._proxied, *arg, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 190, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 68, in do_run_migrations
+    with context.begin_transaction():
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/migration.py", line 84, in __exit__
+    self._proxied_transaction.__exit__(type_, value, traceback)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/util.py", line 146, in __exit__
+    with util.safe_reraise():
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/util.py", line 144, in __exit__
+    self.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2615, in commit
+    self._do_commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2720, in _do_commit
+    self._connection_commit_impl()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2691, in _connection_commit_impl
+    self.connection._commit_impl()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1134, in _commit_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2339, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1132, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 694, in do_commit
+    dbapi_connection.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 880, in commit
+    self._handle_exception(error)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 802, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.ConnectionDoesNotExistError'>: connection was closed in the middle of operation
+(Background on this error at: https://sqlalche.me/e/20/dbapi)
+
+2025-12-18 17:41:48 | ERROR    | Ошибка при применении миграций: Миграции не применены: INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 878, in commit
+    self.await_(self._transaction.commit())
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 125, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 185, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/transaction.py", line 219, in commit
+    await self.__commit()
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/transaction.py", line 187, in __commit
+    await self._connection.execute(query)
+  File "/usr/local/lib/python3.11/site-packages/asyncpg/connection.py", line 350, in execute
+    result = await self._protocol.query(query, timeout)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 374, in query
+asyncpg.exceptions.ConnectionDoesNotExistError: connection was closed in the middle of operation
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1132, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 694, in do_commit
+    dbapi_connection.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 880, in commit
+    self._handle_exception(error)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 802, in _handle_exception
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.Error: <class 'asyncpg.exceptions.ConnectionDoesNotExistError'>: connection was closed in the middle of operation
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/scripts/migrate.py", line 56, in <module>
+    main()
+  File "/app/scripts/migrate.py", line 37, in main
+    command.upgrade(alembic_cfg, revision)
+  File "/usr/local/lib/python3.11/site-packages/alembic/command.py", line 403, in upgrade
+    script.run_env()
+  File "/usr/local/lib/python3.11/site-packages/alembic/script/base.py", line 583, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 95, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/alembic/util/pyfiles.py", line 113, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/app/database/migrations/env.py", line 94, in <module>
+    asyncio.run(run_migrations_online())
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 85, in run_migrations_online
+    await connection.run_sync(do_run_migrations)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/ext/asyncio/engine.py", line 884, in run_sync
+    return await greenlet_spawn(fn, self._proxied, *arg, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 190, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/database/migrations/env.py", line 68, in do_run_migrations
+    with context.begin_transaction():
+  File "/usr/local/lib/python3.11/site-packages/alembic/runtime/migration.py", line 84, in __exit__
+    self._proxied_transaction.__exit__(type_, value, traceback)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/util.py", line 146, in __exit__
+    with util.safe_reraise():
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/util.py", line 144, in __exit__
+    self.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2615, in commit
+    self._do_commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2720, in _do_commit
+    self._connection_commit_impl()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2691, in _connection_commit_impl
+    self.connection._commit_impl()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1134, in _commit_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2339, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1132, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 694, in do_commit
+    dbapi_connection.commit()
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 880, in commit
+    self._handle_exception(error)
+  File "/usr/local/lib/python3.11/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 802, in _handle_exception
+    raise translated_error from error
+sqlalchemy.exc.DBAPIError: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.ConnectionDoesNotExistError'>: connection was closed in the middle of operation
+(Background on this error at: https://sqlalche.me/e/20/dbapi)
+
+2025-12-18 17:41:48 | INFO     | ✅ Задача еженедельной отправки бэкапов админам добавлена (каждый понедельник в 3:00 UTC)
+2025-12-18 17:41:48 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-18 17:41:48 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-18 17:41:48 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-18 17:41:48 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-18 17:41:48 | INFO     | Bot started
+2025-12-18 17:41:51 | INFO     | Database engine initialized successfully
+2025-12-18 17:41:51 | INFO     | Проверка и применение миграций базы данных...
+2025-12-18 17:41:51 | INFO     | Подключение к базе данных установлено
+2025-12-18 17:41:52 | INFO     | Database engine initialized successfully
+2025-12-18 17:41:52 | INFO     | Миграции применены успешно. Найдено таблиц: 15
+2025-12-18 17:41:52 | INFO     | ✅ Задача еженедельной отправки бэкапов админам добавлена (каждый понедельник в 3:00 UTC)
+2025-12-18 17:41:52 | INFO     | 📄 Найдено в .env файле: TEST_MODE=false
+2025-12-18 17:41:52 | INFO     | ✅ Перезагружен .env файл: /app/.env
+2025-12-18 17:41:52 | INFO     | 🔍 TEST_MODE = False (тип: bool)
+2025-12-18 17:41:52 | INFO     | 🔍 TEST_MODE из env: 'false' (тип: str)
+2025-12-18 17:41:52 | INFO     | Bot started
