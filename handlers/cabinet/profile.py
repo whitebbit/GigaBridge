@@ -273,6 +273,7 @@ async def subscription_detail_handler(callback: types.CallbackQuery):
     # Генерируем QR-код для ссылки на подписку (если есть sub_id)
     photo = None
     if subscription.sub_id:
+        
         try:
             # Получаем сервер для извлечения IP адреса (если еще не получен)
             if not server:
