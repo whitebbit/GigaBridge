@@ -7,6 +7,7 @@ from .support import router as support_router
 from .tutorials import router as tutorials_router
 from .documentation import router as documentation_router
 from .backup import router as backup_router
+from .updates import router as updates_router
 
-__all__ = ["servers_router", "users_router", "dashboard_router", "locations_router", "promocodes_router", "support_router", "tutorials_router", "documentation_router", "backup_router"]
+__all__ = ["servers_router", "users_router", "dashboard_router", "locations_router", "promocodes_router", "support_router", "tutorials_router", "documentation_router", "backup_router", "updates_router"]
 

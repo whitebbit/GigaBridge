@@ -1,9 +1,9 @@
 # Используем официальный Python 3.11
 FROM python:3.11-slim
 
-# Устанавливаем PostgreSQL клиент для работы бэкапов
+# Устанавливаем PostgreSQL клиент и Git для работы бэкапов и обновлений
 RUN apt-get update && \
-    apt-get install -y postgresql-client && \
+    apt-get install -y postgresql-client git && \
     rm -rf /var/lib/apt/lists/*
 
 # Рабочая директория внутри контейнера

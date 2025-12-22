@@ -7,7 +7,7 @@ from handlers import start, menu
 from handlers.cabinet import profile
 from handlers.cabinet import support as cabinet_support
 from handlers.buy import select_plan, payment
-from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router, tutorials_router, documentation_router, backup_router
+from handlers.admin import servers_router, users_router, dashboard_router, locations_router, promocodes_router, support_router, tutorials_router, documentation_router, backup_router, updates_router
 from utils.logger import logger
 
 # Добавляем корневую директорию проекта в PYTHONPATH
@@ -140,6 +140,7 @@ async def main():
     dp.include_router(tutorials_router)
     dp.include_router(documentation_router)
     dp.include_router(backup_router)
+    dp.include_router(updates_router)
     dp.include_router(support_router)
 
     # Перезагружаем .env файл ПЕРЕД созданием конфига

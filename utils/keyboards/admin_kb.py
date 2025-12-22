@@ -14,6 +14,7 @@ def admin_menu():
     kb.button(text="📊 Статистика", callback_data="admin_stats")
     kb.button(text="📢 Рассылка", callback_data="admin_broadcast")
     kb.button(text="💾 Бэкапы", callback_data="admin_backup")
+    kb.button(text="🔄 Обновления", callback_data="admin_updates")
     kb.button(text="💬 Поддержка", callback_data="admin_support")
     kb.button(text="🔙 Назад", callback_data="menu")
     kb.adjust(1)
