@@ -11,6 +11,7 @@ services:
     restart: always
     volumes:
       - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket для управления контейнерами
     command: python main.py
     dns:
       - 8.8.8.8

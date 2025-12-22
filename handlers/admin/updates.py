@@ -18,10 +18,19 @@ router = Router()
 # Добавляем корневую директорию проекта в PYTHONPATH
 project_root = Path(__file__).parent.parent.parent
 
+# Импортируем Docker клиент (опционально, если доступен)
+try:
+    import docker
+    DOCKER_AVAILABLE = True
+except ImportError:
+    DOCKER_AVAILABLE = False
+    logger.warning("Docker Python библиотека не установлена. Автоматический перезапуск недоступен.")
+
 
 class UpdateStates(StatesGroup):
     """Состояния для обновления из GitHub"""
     waiting_confirm = State()
+    waiting_restart_confirm = State()
 
 
 async def safe_edit_text(message: types.Message, text: str, reply_markup=None, parse_mode="HTML"):
@@ -183,6 +192,45 @@ def pull_updates() -> tuple[bool, str]:
         return True, "✅ Репозиторий уже актуален. Обновлений нет."
     
     return True, f"✅ Обновления успешно загружены!\n\n{output}"
+
+
+def restart_docker_container(container_name: str = "gigabridge_bot") -> tuple[bool, str]:
+    """
+    Перезапускает Docker контейнер через Docker API
+    
+    Args:
+        container_name: Имя контейнера для перезапуска
+    
+    Returns:
+        (success: bool, message: str)
+    """
+    if not DOCKER_AVAILABLE:
+        return False, "Docker Python библиотека не установлена. Установите: pip install docker"
+    
+    try:
+        # Подключаемся к Docker socket
+        client = docker.from_env()
+        
+        # Получаем контейнер
+        try:
+            container = client.containers.get(container_name)
+        except docker.errors.NotFound:
+            return False, f"Контейнер '{container_name}' не найден"
+        
+        # Перезапускаем контейнер
+        container.restart(timeout=10)
+        
+        logger.info(f"Контейнер {container_name} успешно перезапущен")
+        return True, f"✅ Контейнер '{container_name}' успешно перезапущен!"
+    
+    except docker.errors.APIError as e:
+        error_msg = str(e)
+        logger.error(f"Ошибка Docker API при перезапуске контейнера: {error_msg}")
+        return False, f"Ошибка Docker API: {error_msg}"
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Ошибка при перезапуске контейнера: {error_msg}", exc_info=True)
+        return False, f"Ошибка: {error_msg}"
 
 
 @router.callback_query(F.data == "admin_updates", AdminFilter())
@@ -354,18 +402,36 @@ async def execute_pull(message: types.Message):
     success, result = pull_updates()
     
     if success:
-        text = f"✅ <b>Обновления загружены!</b>\n\n{result}\n\n"
-        text += "⚠️ <b>Важно:</b> Для применения изменений может потребоваться перезапуск бота.\n"
-        text += "Если были изменены зависимости, выполните:\n"
-        text += "<code>pip install -r requirements.txt</code>"
+        # Проверяем, были ли реально загружены обновления (не "Already up to date")
+        was_updated = "Already up to date" not in result
+        
+        if was_updated:
+            text = f"✅ <b>Обновления загружены!</b>\n\n{result}\n\n"
+            text += "🔄 <b>Перезапустить бота для применения изменений?</b>\n\n"
+            text += "⚠️ Бот будет перезапущен через несколько секунд после подтверждения."
+            
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            kb = InlineKeyboardBuilder()
+            kb.button(text="✅ Да, перезапустить", callback_data="updates_restart_confirm")
+            kb.button(text="❌ Нет, позже", callback_data="updates_no_restart")
+            kb.adjust(1)
+        else:
+            text = f"{result}\n\n"
+            text += "Обновлений не было, перезапуск не требуется."
+            
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            kb = InlineKeyboardBuilder()
+            kb.button(text="🔄 Проверить обновления", callback_data="updates_check")
+            kb.button(text="🔙 Назад", callback_data="admin_updates")
+            kb.adjust(1)
     else:
         text = f"❌ <b>Ошибка при загрузке обновлений</b>\n\n{result}"
-    
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🔄 Проверить обновления", callback_data="updates_check")
-    kb.button(text="🔙 Назад", callback_data="admin_updates")
-    kb.adjust(1)
+        
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        kb = InlineKeyboardBuilder()
+        kb.button(text="🔄 Проверить обновления", callback_data="updates_check")
+        kb.button(text="🔙 Назад", callback_data="admin_updates")
+        kb.adjust(1)
     
     await safe_edit_text(status_msg, text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
@@ -384,6 +450,66 @@ async def show_log(callback: types.CallbackQuery):
     kb.adjust(1)
     
     await safe_edit_text(callback.message, log_text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "updates_restart_confirm", AdminFilter())
+async def restart_container_confirm(callback: types.CallbackQuery):
+    """Подтверждение перезапуска контейнера"""
+    await callback.answer()
+    
+    status_msg = await callback.message.answer(
+        "⏳ <b>Перезапуск контейнера...</b>\n\n"
+        "Пожалуйста, подождите. Бот будет перезапущен через несколько секунд.",
+        parse_mode="HTML"
+    )
+    
+    # Перезапускаем контейнер
+    success, message = restart_docker_container()
+    
+    if success:
+        text = f"{message}\n\n"
+        text += "⏳ Бот перезапускается...\n"
+        text += "Через несколько секунд бот будет снова доступен."
+    else:
+        text = f"❌ <b>Ошибка при перезапуске</b>\n\n{message}\n\n"
+        text += "Попробуйте перезапустить вручную:\n"
+        text += "<code>docker restart gigabridge_bot</code>"
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔙 Назад в админ-панель", callback_data="admin_menu")
+    kb.adjust(1)
+    
+    try:
+        await safe_edit_text(status_msg, text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        # Если не удалось отредактировать (бот уже перезапускается), отправляем новое сообщение
+        logger.warning(f"Не удалось отредактировать сообщение (возможно, бот перезапускается): {e}")
+        try:
+            await callback.message.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+        except:
+            pass  # Бот уже перезапускается, сообщение не критично
+
+
+@router.callback_query(F.data == "updates_no_restart", AdminFilter())
+async def no_restart(callback: types.CallbackQuery):
+    """Отказ от перезапуска"""
+    await callback.answer()
+    
+    text = "✅ <b>Обновления загружены</b>\n\n"
+    text += "⚠️ <b>Важно:</b> Для применения изменений потребуется перезапуск бота.\n"
+    text += "Вы можете перезапустить позже через:\n"
+    text += "<code>docker restart gigabridge_bot</code>\n\n"
+    text += "Или вернуться в меню обновлений и выбрать перезапуск."
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔄 Перезапустить сейчас", callback_data="updates_restart_confirm")
+    kb.button(text="🔄 Проверить обновления", callback_data="updates_check")
+    kb.button(text="🔙 Назад", callback_data="admin_updates")
+    kb.adjust(1)
+    
+    await safe_edit_text(callback.message, text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "cancel", UpdateStates.waiting_confirm, AdminFilter())

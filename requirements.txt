@@ -17,3 +17,4 @@ qrcode==7.4.2
 pillow==10.2.0
 yookassa==3.0.0
 redis==5.0.1
+docker==7.0.0
