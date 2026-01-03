@@ -58,6 +58,10 @@ class NotifyUsersStates(StatesGroup):
     waiting_max_users = State()
 
 
+class MigrateSubscriptionsStates(StatesGroup):
+    waiting_target_server = State()
+
+
 class EditServerStates(StatesGroup):
     waiting_name = State()
     waiting_description = State()
@@ -1249,6 +1253,7 @@ async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
         EditServerStates.waiting_max_users,
         EditServerStates.waiting_payment_days,
         NotifyUsersStates.waiting_message,
+        MigrateSubscriptionsStates.waiting_target_server,
     ]
     
     # Если состояние не связано с серверами, пропускаем обработку
@@ -1302,6 +1307,7 @@ async def cancel_message_handler(message: types.Message, state: FSMContext):
         EditServerStates.waiting_max_users,
         EditServerStates.waiting_payment_days,
         NotifyUsersStates.waiting_message,
+        MigrateSubscriptionsStates.waiting_target_server,
     ]
     
     # Если состояние не связано с серверами, пропускаем обработку
@@ -1419,6 +1425,196 @@ async def server_delete_confirm(callback: types.CallbackQuery):
         f"Это действие нельзя отменить!",
         reply_markup=confirm_delete_keyboard(server_id)
     )
+
+
+# Перенос подписок с одного сервера на другой
+@router.callback_query(F.data.startswith("admin_server_migrate_subscriptions_"), AdminFilter())
+async def server_migrate_subscriptions_start(callback: types.CallbackQuery, state: FSMContext):
+    """Начало процесса переноса подписок"""
+    await safe_callback_answer(callback)
+    source_server_id = int(callback.data.split("_")[-1])
+    source_server = await get_server_by_id(source_server_id)
+    
+    if not source_server:
+        await safe_edit_text(callback.message, "❌ Сервер не найден!", reply_markup=servers_menu())
+        return
+    
+    # Получаем подписки на исходном сервере
+    subscriptions = await get_subscriptions_by_server(source_server_id)
+    subscriptions_count = len(subscriptions)
+    
+    if subscriptions_count == 0:
+        await safe_callback_answer(callback, "⚠️ На этом сервере нет подписок для переноса", show_alert=True)
+        return
+    
+    # Получаем все серверы, кроме исходного
+    all_servers = await get_all_servers()
+    available_servers = [s for s in all_servers if s.id != source_server_id]
+    
+    if not available_servers:
+        await safe_edit_text(
+            callback.message,
+            f"❌ <b>Нет доступных серверов</b>\n\n"
+            f"Для переноса подписок нужен хотя бы один другой сервер.",
+            reply_markup=server_edit_keyboard(source_server_id)
+        )
+        return
+    
+    # Сохраняем source_server_id в состоянии
+    await state.update_data(source_server_id=source_server_id)
+    
+    # Формируем текст с информацией
+    text = f"🔄 <b>Перенос подписок</b>\n\n"
+    text += f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
+    if source_server.location:
+        text += f"Локация: {html.escape(source_server.location.name)}\n"
+    text += f"Подписок для переноса: <b>{subscriptions_count}</b>\n\n"
+    text += f"Выберите целевой сервер для переноса подписок:"
+    
+    # Создаем клавиатуру с доступными серверами
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    for server in available_servers:
+        status = "✅" if server.is_active else "❌"
+        location_name = server.location.name if server.location else "Без локации"
+        kb.button(
+            text=f"{status} {html.escape(server.name)} ({location_name})",
+            callback_data=f"admin_server_migrate_select_target_{server.id}"
+        )
+    kb.button(text="❌ Отмена", callback_data=f"admin_server_edit_{source_server_id}")
+    kb.adjust(1)
+    
+    await safe_edit_text(callback.message, text, reply_markup=kb.as_markup())
+
+
+@router.callback_query(F.data.startswith("admin_server_migrate_select_target_"), AdminFilter())
+async def server_migrate_subscriptions_select_target(callback: types.CallbackQuery, state: FSMContext):
+    """Выбор целевого сервера для переноса подписок"""
+    await safe_callback_answer(callback)
+    target_server_id = int(callback.data.split("_")[-1])
+    data = await state.get_data()
+    source_server_id = data.get("source_server_id")
+    
+    if not source_server_id:
+        await safe_edit_text(callback.message, "❌ Ошибка: не найден исходный сервер", reply_markup=servers_menu())
+        await state.clear()
+        return
+    
+    source_server = await get_server_by_id(source_server_id)
+    target_server = await get_server_by_id(target_server_id)
+    
+    if not source_server or not target_server:
+        await safe_edit_text(callback.message, "❌ Ошибка: сервер не найден", reply_markup=servers_menu())
+        await state.clear()
+        return
+    
+    if source_server_id == target_server_id:
+        await safe_callback_answer(callback, "❌ Нельзя перенести подписки на тот же сервер", show_alert=True)
+        return
+    
+    # Получаем количество подписок
+    subscriptions = await get_subscriptions_by_server(source_server_id)
+    subscriptions_count = len(subscriptions)
+    
+    # Формируем текст подтверждения
+    text = f"⚠️ <b>Подтверждение переноса подписок</b>\n\n"
+    text += f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
+    if source_server.location:
+        text += f"Локация: {html.escape(source_server.location.name)}\n"
+    text += f"\nЦелевой сервер: <b>{html.escape(target_server.name)}</b>\n"
+    if target_server.location:
+        text += f"Локация: {html.escape(target_server.location.name)}\n"
+    text += f"\nПодписок для переноса: <b>{subscriptions_count}</b>\n\n"
+    text += f"⚠️ Все подписки будут перенесены на новый сервер.\n"
+    text += f"Пользователям нужно будет обновить ключ подписки.\n\n"
+    text += f"Продолжить?"
+    
+    # Клавиатура подтверждения
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Да, перенести", callback_data=f"admin_server_migrate_confirm_{target_server_id}")
+    kb.button(text="❌ Отмена", callback_data=f"admin_server_edit_{source_server_id}")
+    kb.adjust(2)
+    
+    await state.update_data(target_server_id=target_server_id)
+    await safe_edit_text(callback.message, text, reply_markup=kb.as_markup())
+
+
+@router.callback_query(F.data.startswith("admin_server_migrate_confirm_"), AdminFilter())
+async def server_migrate_subscriptions_execute(callback: types.CallbackQuery, state: FSMContext):
+    """Выполнение переноса подписок"""
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    source_server_id = data.get("source_server_id")
+    target_server_id = data.get("target_server_id") or int(callback.data.split("_")[-1])
+    await state.clear()
+    
+    if not source_server_id or not target_server_id:
+        await safe_edit_text(callback.message, "❌ Ошибка: не найдены серверы", reply_markup=servers_menu())
+        return
+    
+    source_server = await get_server_by_id(source_server_id)
+    target_server = await get_server_by_id(target_server_id)
+    
+    if not source_server or not target_server:
+        await safe_edit_text(callback.message, "❌ Ошибка: сервер не найден", reply_markup=servers_menu())
+        return
+    
+    # Показываем сообщение о начале переноса
+    await safe_edit_text(
+        callback.message,
+        f"🔄 <b>Перенос подписок</b>\n\n"
+        f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
+        f"Целевой сервер: <b>{html.escape(target_server.name)}</b>\n\n"
+        f"⏳ Выполняется перенос...",
+        reply_markup=None
+    )
+    
+    # Импортируем функцию переноса
+    from services.subscription_migration import migrate_subscriptions_from_server
+    
+    try:
+        # Выполняем перенос
+        success_count, error_count, errors = await migrate_subscriptions_from_server(
+            source_server_id,
+            target_server_id
+        )
+        
+        # Формируем результат
+        text = f"✅ <b>Перенос подписок завершен</b>\n\n"
+        text += f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
+        text += f"Целевой сервер: <b>{html.escape(target_server.name)}</b>\n\n"
+        text += f"✅ Успешно перенесено: <b>{success_count}</b>\n"
+        if error_count > 0:
+            text += f"❌ Ошибок: <b>{error_count}</b>\n"
+        
+        if errors and len(errors) > 0:
+            text += f"\n⚠️ Ошибки:\n"
+            # Показываем только первые 5 ошибок
+            for i, error in enumerate(errors[:5], 1):
+                text += f"{i}. {html.escape(error[:100])}\n"
+            if len(errors) > 5:
+                text += f"... и еще {len(errors) - 5} ошибок\n"
+        
+        text += f"\n💡 Пользователям нужно обновить ключ подписки."
+        
+        await safe_edit_text(
+            callback.message,
+            text,
+            reply_markup=server_edit_keyboard(source_server_id)
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при переносе подписок: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await safe_edit_text(
+            callback.message,
+            f"❌ <b>Ошибка при переносе подписок</b>\n\n"
+            f"Ошибка: {html.escape(str(e))}\n\n"
+            f"Проверьте логи для деталей.",
+            reply_markup=server_edit_keyboard(source_server_id)
+        )
 
 
 # Вспомогательная функция для обновления меню после редактирования

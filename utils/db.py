@@ -1294,6 +1294,27 @@ async def get_subscriptions_by_location(location_id: int) -> List[Subscription]:
         return list(result.unique().scalars().all())
 
 
+async def get_subscriptions_by_server(server_id: int) -> List[Subscription]:
+    """Получить все подписки на указанном сервере
+    
+    Args:
+        server_id: ID сервера
+        
+    Returns:
+        Список всех подписок на сервере (любого статуса)
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(Subscription)
+            .options(joinedload(Subscription.server).joinedload(Server.location))
+            .options(joinedload(Subscription.user))
+            .options(joinedload(Subscription.tariff))
+            .where(Subscription.server_id == server_id)
+            .order_by(Subscription.created_at.desc())
+        )
+        return list(result.unique().scalars().all())
+
+
 # ==================== ПРОМОКОДЫ ====================
 
 async def create_promo_code(code: str, discount_percent: float, max_uses: Optional[int] = None, allow_reuse_by_same_user: bool = False) -> PromoCode:

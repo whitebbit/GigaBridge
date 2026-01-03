@@ -60,6 +60,7 @@ def server_edit_keyboard(server_id: int):
     kb.button(text="💰 Период оплаты", callback_data=f"admin_server_edit_payment_days_{server_id}")
     kb.button(text="🔍 Проверка соединения", callback_data=f"admin_server_test_connection_{server_id}")
     kb.button(text="📢 Уведомить пользователей", callback_data=f"admin_server_notify_users_{server_id}")
+    kb.button(text="🔄 Перенести подписки", callback_data=f"admin_server_migrate_subscriptions_{server_id}")
     kb.button(text="🔄 Статус", callback_data=f"admin_server_toggle_{server_id}")
     kb.button(text="🗑️ Удалить", callback_data=f"admin_server_delete_{server_id}")
     kb.button(text="🔙 Назад", callback_data="admin_server_list")
