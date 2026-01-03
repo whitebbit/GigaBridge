@@ -25,7 +25,8 @@ from utils.db import (
     delete_server,
     get_all_locations,
     get_location_by_id,
-    get_users_with_subscriptions_by_server
+    get_users_with_subscriptions_by_server,
+    get_subscriptions_by_server
 )
 
 router = Router()
