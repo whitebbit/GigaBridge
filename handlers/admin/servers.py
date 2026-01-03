@@ -1326,6 +1326,68 @@ async def cancel_message_handler(message: types.Message, state: FSMContext):
     )
 
 
+# Перенос подписок с одного сервера на другой
+# ВАЖНО: Этот обработчик должен быть ПЕРЕД обработчиком server_edit_menu
+@router.callback_query(F.data.startswith("admin_server_migrate_subscriptions_"), AdminFilter())
+async def server_migrate_subscriptions_start(callback: types.CallbackQuery, state: FSMContext):
+    """Начало процесса переноса подписок"""
+    logger.info(f"🔄 Обработчик переноса подписок вызван: {callback.data}")
+    await safe_callback_answer(callback)
+    source_server_id = int(callback.data.split("_")[-1])
+    source_server = await get_server_by_id(source_server_id)
+    
+    if not source_server:
+        await safe_edit_text(callback.message, "❌ Сервер не найден!", reply_markup=servers_menu())
+        return
+    
+    # Получаем подписки на исходном сервере
+    subscriptions = await get_subscriptions_by_server(source_server_id)
+    subscriptions_count = len(subscriptions)
+    
+    if subscriptions_count == 0:
+        await safe_callback_answer(callback, "⚠️ На этом сервере нет подписок для переноса", show_alert=True)
+        return
+    
+    # Получаем все серверы, кроме исходного
+    all_servers = await get_all_servers()
+    available_servers = [s for s in all_servers if s.id != source_server_id]
+    
+    if not available_servers:
+        await safe_edit_text(
+            callback.message,
+            f"❌ <b>Нет доступных серверов</b>\n\n"
+            f"Для переноса подписок нужен хотя бы один другой сервер.",
+            reply_markup=server_edit_keyboard(source_server_id)
+        )
+        return
+    
+    # Сохраняем source_server_id в состоянии
+    await state.update_data(source_server_id=source_server_id)
+    
+    # Формируем текст с информацией
+    text = f"🔄 <b>Перенос подписок</b>\n\n"
+    text += f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
+    if source_server.location:
+        text += f"Локация: {html.escape(source_server.location.name)}\n"
+    text += f"Подписок для переноса: <b>{subscriptions_count}</b>\n\n"
+    text += f"Выберите целевой сервер для переноса подписок:"
+    
+    # Создаем клавиатуру с доступными серверами
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    kb = InlineKeyboardBuilder()
+    for server in available_servers:
+        status = "✅" if server.is_active else "❌"
+        location_name = server.location.name if server.location else "Без локации"
+        kb.button(
+            text=f"{status} {html.escape(server.name)} ({location_name})",
+            callback_data=f"admin_server_migrate_select_target_{server.id}"
+        )
+    kb.button(text="❌ Отмена", callback_data=f"admin_server_edit_{source_server_id}")
+    kb.adjust(1)
+    
+    await safe_edit_text(callback.message, text, reply_markup=kb.as_markup())
+
+
 # Переключение статуса
 @router.callback_query(F.data.startswith("admin_server_toggle_"), AdminFilter())
 async def server_toggle_status(callback: types.CallbackQuery):
@@ -1425,66 +1487,6 @@ async def server_delete_confirm(callback: types.CallbackQuery):
         f"Это действие нельзя отменить!",
         reply_markup=confirm_delete_keyboard(server_id)
     )
-
-
-# Перенос подписок с одного сервера на другой
-@router.callback_query(F.data.startswith("admin_server_migrate_subscriptions_"), AdminFilter())
-async def server_migrate_subscriptions_start(callback: types.CallbackQuery, state: FSMContext):
-    """Начало процесса переноса подписок"""
-    await safe_callback_answer(callback)
-    source_server_id = int(callback.data.split("_")[-1])
-    source_server = await get_server_by_id(source_server_id)
-    
-    if not source_server:
-        await safe_edit_text(callback.message, "❌ Сервер не найден!", reply_markup=servers_menu())
-        return
-    
-    # Получаем подписки на исходном сервере
-    subscriptions = await get_subscriptions_by_server(source_server_id)
-    subscriptions_count = len(subscriptions)
-    
-    if subscriptions_count == 0:
-        await safe_callback_answer(callback, "⚠️ На этом сервере нет подписок для переноса", show_alert=True)
-        return
-    
-    # Получаем все серверы, кроме исходного
-    all_servers = await get_all_servers()
-    available_servers = [s for s in all_servers if s.id != source_server_id]
-    
-    if not available_servers:
-        await safe_edit_text(
-            callback.message,
-            f"❌ <b>Нет доступных серверов</b>\n\n"
-            f"Для переноса подписок нужен хотя бы один другой сервер.",
-            reply_markup=server_edit_keyboard(source_server_id)
-        )
-        return
-    
-    # Сохраняем source_server_id в состоянии
-    await state.update_data(source_server_id=source_server_id)
-    
-    # Формируем текст с информацией
-    text = f"🔄 <b>Перенос подписок</b>\n\n"
-    text += f"Исходный сервер: <b>{html.escape(source_server.name)}</b>\n"
-    if source_server.location:
-        text += f"Локация: {html.escape(source_server.location.name)}\n"
-    text += f"Подписок для переноса: <b>{subscriptions_count}</b>\n\n"
-    text += f"Выберите целевой сервер для переноса подписок:"
-    
-    # Создаем клавиатуру с доступными серверами
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    kb = InlineKeyboardBuilder()
-    for server in available_servers:
-        status = "✅" if server.is_active else "❌"
-        location_name = server.location.name if server.location else "Без локации"
-        kb.button(
-            text=f"{status} {html.escape(server.name)} ({location_name})",
-            callback_data=f"admin_server_migrate_select_target_{server.id}"
-        )
-    kb.button(text="❌ Отмена", callback_data=f"admin_server_edit_{source_server_id}")
-    kb.adjust(1)
-    
-    await safe_edit_text(callback.message, text, reply_markup=kb.as_markup())
 
 
 @router.callback_query(F.data.startswith("admin_server_migrate_select_target_"), AdminFilter())
